@@ -5,7 +5,7 @@
   <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>LeMuRe Viewer</title>
-  <link rel="stylesheet" href="/static/style.css?v=20260116090259"/>
+  <link rel="stylesheet" href="/static/style.css?v=20260116170000"/>
   <!-- Plotly через CDN (если интернет закрыт — скажи, сделаю офлайн-версию с локальным plotly.js) -->
   <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 </head>
@@ -81,6 +81,54 @@
             <div><b>Выбранный интервал:</b> <span id="rangeText">—</span></div>
           </div>
 
+          <div class="stylePanel">
+            <div class="styleTitle">Оформление экспорта (шаблон XLSX)</div>
+
+            <div class="row2">
+              <label>Строки B..P, если T &lt;</label>
+              <input id="rmThreshold" type="number" step="0.1" style="width:90px"/>
+              <label>цвет:</label>
+              <input id="rmColor" type="color"/>
+            </div>
+
+            <div class="row2">
+              <label>Интенсивность:</label>
+              <input id="rmIntensity" type="range" min="0" max="100" value="100"/>
+              <span id="rmIntensityVal" class="mini">100</span>
+            </div>
+
+            <div class="scaleGrid">
+              <div class="scaleRow">
+                <div class="scaleName">W</div>
+                <label>min</label><input id="wMin" type="number" step="0.1"/>
+                <label>opt</label><input id="wOpt" type="number" step="0.1"/>
+                <label>max</label><input id="wMax" type="number" step="0.1"/>
+              </div>
+              <div class="scaleRow">
+                <div class="scaleName">X</div>
+                <label>min</label><input id="xMin" type="number" step="0.1"/>
+                <label>opt</label><input id="xOpt" type="number" step="0.1"/>
+                <label>max</label><input id="xMax" type="number" step="0.1"/>
+              </div>
+              <div class="scaleRow">
+                <div class="scaleName">Y</div>
+                <label>min</label><input id="yMin" type="number" step="0.1"/>
+                <label>opt</label><input id="yOpt" type="number" step="0.1"/>
+                <label>max</label><input id="yMax" type="number" step="0.1"/>
+              </div>
+            </div>
+
+            <div class="row2">
+              <button id="btnSaveStyle" type="button">Применить</button>
+              <span id="styleStatus" class="statusText"></span>
+            </div>
+
+            <div class="hint mini">
+              Эти настройки сохраняются в viewer_settings.json и применяются к следующей выгрузке «В шаблон XLSX».
+              Шкала W/X/Y независима от других ячеек: используются фиксированные min/opt/max.
+            </div>
+          </div>
+
           <div class="hint">
             Интервал экспорта берётся из видимой области графика по оси X.
             Увеличь/уменьши масштаб (выделением мышью или колесом). Текущий интервал покажу справа. Также можно двигать range-slider снизу.
@@ -101,6 +149,6 @@
     </section>
   </div>
 
-  <script src="/static/app.js?v=20260116130000"></script>
+  <script src="/static/app.js?v=20260116170000"></script>
 </body>
 </html>

@@ -67,6 +67,182 @@ ORDER_FILE = os.path.join(os.path.dirname(__file__), "channel_order.json")
 TEMPLATE_FILE = os.path.join(os.path.dirname(__file__), "template.xlsx")
 ORDERS_DIR = os.path.join(os.path.dirname(__file__), 'saved_orders')
 
+# Optional viewer settings (editable without changing code)
+# Настройки влияют на оформление экспорта «В шаблон XLSX».
+# Их можно менять через UI (раздел «Оформление экспорта») или вручную в viewer_settings.json.
+#
+# Формат viewer_settings.json (канонический):
+# {
+#   "row_mark": {"threshold_T": 150, "color": "#FFF2CC", "intensity": 100},
+#   "scales": {
+#     "W": {"min": 0, "opt": 1, "max": 2},
+#     "X": {"min": 0, "opt": 9, "max": 18},
+#     "Y": {"min": 0, "opt": 5, "max": 10}
+#   }
+# }
+# intensity: 0..100 (0 = белый, 100 = выбранный цвет)
+SETTINGS_FILE = os.path.join(os.path.dirname(__file__), 'viewer_settings.json')
+
+DEFAULT_VIEWER_SETTINGS: Dict[str, Any] = {
+    'row_mark': {
+        'threshold_T': 150,
+        'color': '#FFF2CC',   # мягкий жёлтый (как в примере)
+        'intensity': 100,
+    },
+    'scales': {
+        'W': {'min': 0, 'opt': 1, 'max': 2},
+        'X': {'min': 0, 'opt': 9, 'max': 18},
+        'Y': {'min': 0, 'opt': 5, 'max': 10},
+    },
+}
+
+def _deep_merge(dst: Dict[str, Any], src: Dict[str, Any]) -> Dict[str, Any]:
+    for k, v in (src or {}).items():
+        if isinstance(v, dict) and isinstance(dst.get(k), dict):
+            _deep_merge(dst[k], v)
+        else:
+            dst[k] = v
+    return dst
+
+def _normalize_hex_color(s: str, default: str = '#FFF2CC') -> str:
+    s = (s or '').strip()
+    if not s:
+        return default
+    if not s.startswith('#'):
+        s = '#' + s
+    if re.fullmatch(r'#[0-9A-Fa-f]{6}', s):
+        return s.upper()
+    return default
+
+def _argb_from_hex_and_intensity(hex_color: str, intensity_0_100: int) -> str:
+    """Convert CSS #RRGGBB + intensity to Excel ARGB (FFRRGGBB), blending with white.
+    intensity=100 -> original color; intensity=0 -> white.
+    """
+    hex_color = _normalize_hex_color(hex_color)
+    i = max(0, min(100, int(intensity_0_100)))
+    w = 1.0 - i / 100.0
+    r = int(hex_color[1:3], 16)
+    g = int(hex_color[3:5], 16)
+    b = int(hex_color[5:7], 16)
+    r2 = int(round(r * (1.0 - w) + 255 * w))
+    g2 = int(round(g * (1.0 - w) + 255 * w))
+    b2 = int(round(b * (1.0 - w) + 255 * w))
+    return f'FF{r2:02X}{g2:02X}{b2:02X}'
+
+def load_viewer_settings() -> Dict[str, Any]:
+    # Start with defaults
+    s = json.loads(json.dumps(DEFAULT_VIEWER_SETTINGS))
+
+    user_s = {}
+    try:
+        if os.path.exists(SETTINGS_FILE):
+            with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
+                user_s = json.load(f)
+            if not isinstance(user_s, dict):
+                user_s = {}
+    except Exception:
+        user_s = {}
+
+    # Backward compatibility (older keys)
+    # v7: yellow_threshold_T / yellow_intensity
+    if isinstance(user_s, dict):
+        if 'yellow_threshold_T' in user_s and 'row_mark' not in user_s:
+            try:
+                s['row_mark']['threshold_T'] = float(user_s.get('yellow_threshold_T'))
+            except Exception:
+                pass
+        if 'yellow_intensity' in user_s and 'row_mark' not in user_s:
+            try:
+                s['row_mark']['intensity'] = int(user_s.get('yellow_intensity'))
+            except Exception:
+                pass
+
+    _deep_merge(s, user_s)
+
+    # Normalize
+    rm = s.get('row_mark') if isinstance(s.get('row_mark'), dict) else {}
+    try:
+        rm['threshold_T'] = float(rm.get('threshold_T', 150))
+    except Exception:
+        rm['threshold_T'] = 150.0
+    try:
+        rm['intensity'] = max(0, min(100, int(rm.get('intensity', 100))))
+    except Exception:
+        rm['intensity'] = 100
+    rm['color'] = _normalize_hex_color(str(rm.get('color') or ''), default='#FFF2CC')
+    s['row_mark'] = rm
+
+    scales = s.get('scales') if isinstance(s.get('scales'), dict) else {}
+    out_scales = {}
+    for k, defaults in DEFAULT_VIEWER_SETTINGS['scales'].items():
+        d = scales.get(k, {}) if isinstance(scales.get(k), dict) else {}
+        merged = dict(defaults)
+        merged.update(d)
+        for kk in ('min', 'opt', 'max'):
+            try:
+                merged[kk] = float(merged.get(kk))
+            except Exception:
+                merged[kk] = float(defaults[kk])
+        # Guard against degenerate scales (must be increasing)
+        if merged['min'] >= merged['opt']:
+            merged['min'] = merged['opt'] - 1
+        if merged['opt'] >= merged['max']:
+            merged['max'] = merged['opt'] + 1
+        out_scales[k] = merged
+    s['scales'] = out_scales
+
+    return s
+
+
+def normalize_viewer_settings(user_s: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize/validate settings coming from UI/JSON."""
+    s = json.loads(json.dumps(DEFAULT_VIEWER_SETTINGS))
+    if not isinstance(user_s, dict):
+        user_s = {}
+    _deep_merge(s, user_s)
+
+    rm = s.get('row_mark') if isinstance(s.get('row_mark'), dict) else {}
+    try:
+        rm['threshold_T'] = float(rm.get('threshold_T', 150))
+    except Exception:
+        rm['threshold_T'] = 150.0
+    try:
+        rm['intensity'] = max(0, min(100, int(rm.get('intensity', 100))))
+    except Exception:
+        rm['intensity'] = 100
+    rm['color'] = _normalize_hex_color(str(rm.get('color') or ''), default='#FFF2CC')
+    s['row_mark'] = rm
+
+    scales = s.get('scales') if isinstance(s.get('scales'), dict) else {}
+    out_scales = {}
+    for k, defaults in DEFAULT_VIEWER_SETTINGS['scales'].items():
+        d = scales.get(k, {}) if isinstance(scales.get(k), dict) else {}
+        merged = dict(defaults)
+        merged.update(d)
+        for kk in ('min', 'opt', 'max'):
+            try:
+                merged[kk] = float(merged.get(kk))
+            except Exception:
+                merged[kk] = float(defaults[kk])
+        if merged['min'] >= merged['opt']:
+            merged['min'] = merged['opt'] - 1
+        if merged['opt'] >= merged['max']:
+            merged['max'] = merged['opt'] + 1
+        out_scales[k] = merged
+    s['scales'] = out_scales
+    return s
+
+
+def save_viewer_settings(settings: Dict[str, Any]) -> None:
+    try:
+        with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(settings, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+VIEWER_SETTINGS = load_viewer_settings()
+
 def _ensure_orders_dir() -> None:
     try:
         os.makedirs(ORDERS_DIR, exist_ok=True)
@@ -155,6 +331,25 @@ def add_no_cache_headers(resp):
 @app.route("/")
 def index():
     return render_template("index.html", port=APP_PORT)
+
+
+@app.route("/api/settings", methods=["GET", "POST"])
+def api_settings():
+    """Get or update viewer settings used for template export formatting.
+
+    GET  -> {ok:true, settings:{...}}
+    POST -> accepts either {settings:{...}} or just {...}
+    """
+    global VIEWER_SETTINGS
+    if request.method == "GET":
+        return jsonify({"ok": True, "settings": VIEWER_SETTINGS})
+
+    body = request.get_json(force=True, silent=True) or {}
+    user_s = body.get('settings') if isinstance(body, dict) and isinstance(body.get('settings'), dict) else body
+    s = normalize_viewer_settings(user_s if isinstance(user_s, dict) else {})
+    VIEWER_SETTINGS = s
+    save_viewer_settings(s)
+    return jsonify({"ok": True, "settings": s})
 
 @app.route("/api/pick_folder", methods=["POST"])
 def pick_folder():
@@ -870,48 +1065,58 @@ def _api_export_template_impl():
             last_r = start_row + len(idxs) - 1
 
             if last_r >= first_r:
-                # Yellow row (B..P) if T < 150
-                # Use ARGB (FF......) and set both start/end colors for best Excel compatibility.
-                yellow_fill = PatternFill(fill_type="solid", start_color="FFFFFF00", end_color="FFFFFF00")
-                rng_yellow = f"B{first_r}:P{last_r}"
-                # Lock column T, keep row relative
-                # stopIfTrue=True makes this rule override any lower-priority rules that
-                # could exist in the template for the same cells.
-                rule_yellow = FormulaRule(formula=[f"$T{first_r}<150"], fill=yellow_fill, stopIfTrue=True)
-                ws.conditional_formatting.add(rng_yellow, rule_yellow)
+                # Row highlight (B..P) if column T is below threshold
+                rm = VIEWER_SETTINGS.get('row_mark') if isinstance(VIEWER_SETTINGS.get('row_mark'), dict) else {}
+                thr = rm.get('threshold_T', 150)
+                try:
+                    thr_f = float(thr)
+                    thr = int(thr_f) if thr_f.is_integer() else thr_f
+                except Exception:
+                    thr = 150
 
-                # Color scales for W, X, Y (blue -> green(threshold) -> red)
-                # IMPORTANT: make them independent from other cells by using fixed numeric bounds.
-                # You can adjust MAX_* if you want a different saturation point.
-                MAX_W = 2   # for column W: center at 1
-                MAX_X = 18  # for column X: center at 9
-                MAX_Y = 10  # for column Y: center at 5
+                color_hex = str(rm.get('color') or '#FFF2CC')
+                intensity = rm.get('intensity', 100)
+                try:
+                    intensity = int(intensity)
+                except Exception:
+                    intensity = 100
+                fill_argb = _argb_from_hex_and_intensity(color_hex, intensity)
 
-                ws.conditional_formatting.add(
-                    f"W{first_r}:W{last_r}",
-                    ColorScaleRule(
-                        start_type="num", start_value=0, start_color="0000FF",
-                        mid_type="num", mid_value=1, mid_color="00FF00",
-                        end_type="num", end_value=MAX_W, end_color="FF0000",
-                    ),
-                )
-                ws.conditional_formatting.add(
-                    f"X{first_r}:X{last_r}",
-                    ColorScaleRule(
-                        start_type="num", start_value=0, start_color="0000FF",
-                        mid_type="num", mid_value=9, mid_color="00FF00",
-                        end_type="num", end_value=MAX_X, end_color="FF0000",
-                    ),
-                )
-                ws.conditional_formatting.add(
-                    f"Y{first_r}:Y{last_r}",
-                    ColorScaleRule(
-                        start_type="num", start_value=0, start_color="0000FF",
-                        mid_type="num", mid_value=5, mid_color="00FF00",
-                        end_type="num", end_value=MAX_Y, end_color="FF0000",
-                    ),
-                )
+                row_fill = PatternFill(fill_type="solid", start_color=fill_argb, end_color=fill_argb)
+                rng_row = f"B{first_r}:P{last_r}"
+                # Lock column T, keep row relative; stopIfTrue gives this rule priority over template rules.
+                rule_row = FormulaRule(formula=[f"$T{first_r}<{thr}"], fill=row_fill, stopIfTrue=True)
+                ws.conditional_formatting.add(rng_row, rule_row)
 
+                # Independent (fixed) 3-color scales for W / X / Y: blue -> green(opt) -> red
+                scales = VIEWER_SETTINGS.get('scales') if isinstance(VIEWER_SETTINGS.get('scales'), dict) else {}
+
+                def _add_scale(col_letter: str) -> None:
+                    spec = scales.get(col_letter) if isinstance(scales.get(col_letter), dict) else {}
+                    try:
+                        vmin = float(spec.get('min'))
+                        vopt = float(spec.get('opt'))
+                        vmax = float(spec.get('max'))
+                    except Exception:
+                        d = DEFAULT_VIEWER_SETTINGS['scales'][col_letter]
+                        vmin, vopt, vmax = float(d['min']), float(d['opt']), float(d['max'])
+                    # Guard against degenerate/incorrect values
+                    if vmin >= vopt:
+                        vmin = vopt - 1
+                    if vopt >= vmax:
+                        vmax = vopt + 1
+
+                    ws.conditional_formatting.add(
+                        f"{col_letter}{first_r}:{col_letter}{last_r}",
+                        ColorScaleRule(
+                            start_type="num", start_value=vmin, start_color="0000FF",
+                            mid_type="num", mid_value=vopt, mid_color="00FF00",
+                            end_type="num", end_value=vmax, end_color="FF0000",
+                        ),
+                    )
+
+                for _col in ('W', 'X', 'Y'):
+                    _add_scale(_col)
         except Exception as _cf_e:
             try:
                 print("[TEMPLATE] conditional formatting skipped:", _cf_e)

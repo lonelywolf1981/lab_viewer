@@ -1,0 +1,24 @@
+{
+  "row_mark": {
+    "threshold_T": 150.0,
+    "color": "#EAB106",
+    "intensity": 100
+  },
+  "scales": {
+    "W": {
+      "min": -99.0,
+      "opt": 1.0,
+      "max": 2.0
+    },
+    "X": {
+      "min": -99.0,
+      "opt": 9.0,
+      "max": 10.0
+    },
+    "Y": {
+      "min": -99.0,
+      "opt": 5.0,
+      "max": 6.0
+    }
+  }
+}

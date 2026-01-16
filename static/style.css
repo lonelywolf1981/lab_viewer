@@ -56,3 +56,14 @@ button { padding: 7px 12px; cursor:pointer; }
 .btnBusy{opacity:.7;pointer-events:none;}
 
 #tplStatus{display:inline-block;min-width:260px;}
+
+/* Export styling controls */
+.stylePanel{margin-top:10px;padding:10px;border:1px dashed #ddd;border-radius:10px;background:#fff;}
+.styleTitle{font-weight:bold;margin-bottom:6px;}
+.mini{font-size:11px;opacity:.85;}
+.scaleGrid{display:flex;flex-direction:column;gap:6px;margin-top:6px;}
+.scaleRow{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.scaleName{font-weight:bold;min-width:14px;}
+.scaleRow input{width:82px;padding:4px 6px;}
+#rmColor{width:44px;height:28px;padding:0;border:1px solid #ddd;border-radius:6px;}
+#rmIntensity{min-width:180px;}

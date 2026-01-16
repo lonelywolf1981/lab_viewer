@@ -59,6 +59,8 @@ let SAVED_ORDER = [];         // saved custom order (from channel_order.json) - 
 let SUMMARY = null;
 let currentRange = null;      // [start_ms, end_ms]
 
+let VIEWER_SETTINGS = null;  // server-side settings for template styling
+
 let redrawTimer = null;
 let saveOrderTimer = null;
 
@@ -821,6 +823,105 @@ function exportTemplate() {
 }
 
 
+
+
+// ---------------- Export template styling settings (server-side) ----------------
+function _num(v, defv) {
+  const x = parseFloat(v);
+  return Number.isFinite(x) ? x : defv;
+}
+
+function _set(id, val) {
+  const e = el(id);
+  if(!e) return;
+  e.value = (val === undefined || val === null) ? '' : String(val);
+}
+
+function _setText(id, txt) {
+  const e = el(id);
+  if(!e) return;
+  e.textContent = txt;
+}
+
+function _styleStatus(msg, isErr) {
+  const e = el('styleStatus');
+  if(!e) return;
+  e.textContent = msg || '';
+  e.style.color = isErr ? '#b00020' : '#333';
+}
+
+function _collectStyleSettingsFromUI() {
+  return {
+    row_mark: {
+      threshold_T: _num(el('rmThreshold')?.value, 150),
+      color: (el('rmColor')?.value || '#FFF2CC'),
+      intensity: Math.max(0, Math.min(100, parseInt(el('rmIntensity')?.value || '100', 10)))
+    },
+    scales: {
+      W: {min: _num(el('wMin')?.value, 0), opt: _num(el('wOpt')?.value, 1), max: _num(el('wMax')?.value, 2)},
+      X: {min: _num(el('xMin')?.value, 0), opt: _num(el('xOpt')?.value, 9), max: _num(el('xMax')?.value, 18)},
+      Y: {min: _num(el('yMin')?.value, 0), opt: _num(el('yOpt')?.value, 5), max: _num(el('yMax')?.value, 10)}
+    }
+  };
+}
+
+function _applyStyleSettingsToUI(s) {
+  if(!s) return;
+  const rm = s.row_mark || {};
+  _set('rmThreshold', rm.threshold_T ?? 150);
+  _set('rmColor', rm.color || '#FFF2CC');
+  _set('rmIntensity', rm.intensity ?? 100);
+  _setText('rmIntensityVal', String(rm.intensity ?? 100));
+
+  const sc = s.scales || {};
+  const w = sc.W || {}; const x = sc.X || {}; const y = sc.Y || {};
+  _set('wMin', w.min ?? 0); _set('wOpt', w.opt ?? 1); _set('wMax', w.max ?? 2);
+  _set('xMin', x.min ?? 0); _set('xOpt', x.opt ?? 9); _set('xMax', x.max ?? 18);
+  _set('yMin', y.min ?? 0); _set('yOpt', y.opt ?? 5); _set('yMax', y.max ?? 10);
+}
+
+function loadStyleSettings() {
+  return fetch('/api/settings')
+    .then(r=>r.json())
+    .then(j=>{
+      if(!j || !j.ok) throw new Error((j && j.error) ? j.error : 'Не удалось загрузить настройки');
+      VIEWER_SETTINGS = j.settings;
+      _applyStyleSettingsToUI(VIEWER_SETTINGS);
+      _styleStatus('Настройки загружены', false);
+    })
+    .catch(e=>{
+      _styleStatus('Ошибка загрузки настроек', true);
+      log('Settings load error: ' + e);
+    });
+}
+
+function saveStyleSettings() {
+  const btn = el('btnSaveStyle');
+  const s = _collectStyleSettingsFromUI();
+  if(btn) btn.disabled = true;
+  _styleStatus('Сохраняю...', false);
+
+  return fetch('/api/settings', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(s)
+  })
+    .then(r=>r.json())
+    .then(j=>{
+      if(!j || !j.ok) throw new Error((j && j.error) ? j.error : 'Не удалось сохранить настройки');
+      VIEWER_SETTINGS = j.settings;
+      _applyStyleSettingsToUI(VIEWER_SETTINGS);
+      _styleStatus('Сохранено', false);
+      log('Settings saved');
+    })
+    .catch(e=>{
+      _styleStatus('Ошибка сохранения', true);
+      log('Settings save error: ' + e);
+      alert('Не удалось сохранить настройки оформления.\n\n' + (e && e.message ? e.message : e));
+    })
+    .finally(()=>{ if(btn) btn.disabled = false; });
+}
+
 function scheduleRedraw() {
   if(redrawTimer) clearTimeout(redrawTimer);
   redrawTimer = setTimeout(() => {
@@ -865,6 +966,19 @@ function wire() {
 
   const br = el("btnRefreshOrders");
   if(br) br.addEventListener("click", () => refreshNamedOrders());
+
+  const bstyle = el("btnSaveStyle");
+  if(bstyle) bstyle.addEventListener("click", saveStyleSettings);
+
+  const rint = el("rmIntensity");
+  if(rint) rint.addEventListener("input", () => {
+    const sp = el("rmIntensityVal");
+    if(sp) sp.textContent = rint.value;
+  });
+
+  // load export styling settings
+  loadStyleSettings();
+
 
   // populate list on startup
   refreshNamedOrders();
