@@ -503,6 +503,7 @@ def _api_export_template_impl():
     rows: List[Dict[str, Any]] = data["rows"]
     t_list: List[int] = STATE["t_list"]
     cols: List[str] = data.get("cols") or []
+    channels: Dict[str, ChannelInfo] = data.get("channels") or {}
 
     if not rows:
         return jsonify({"ok": False, "error": "Нет строк данных"}), 400
@@ -607,6 +608,66 @@ def _api_export_template_impl():
     }
     key_to_code = {k: resolve_for_selection(k) for k in key_to_col.keys()}
 
+    # Extra sensors (not mapped to D..T): write them starting from column Z.
+    # Sorting is "human-friendly": 1, 2, 3 ... (natural sort) by sensor name.
+    fixed_codes = set([v for v in key_to_code.values() if v])
+
+    if selected:
+        # Keep original file order before sorting
+        candidate_codes = [c for c in cols if c in selected]
+    else:
+        candidate_codes = list(cols)
+
+    extra_codes = [c for c in candidate_codes if c and c not in fixed_codes]
+
+    def _nat_key(s: str):
+        import re as _re
+        parts = _re.split(r'(\d+)', s or '')
+        out = []
+        for part in parts:
+            if part.isdigit():
+                try:
+                    out.append(int(part))
+                except Exception:
+                    out.append(part)
+            else:
+                out.append(part.casefold())
+        return out
+
+    def _display_name(code: str) -> str:
+        ch = channels.get(code)
+        nm = ''
+        try:
+            nm = (ch.name or '').strip() if ch else ''
+        except Exception:
+            nm = ''
+        if nm:
+            return nm
+        lb = ''
+        try:
+            lb = (ch.label or '').strip() if ch else ''
+        except Exception:
+            lb = ''
+        return lb or code
+
+    def _template_header(code: str) -> str:
+        ch = channels.get(code)
+        nm = _display_name(code)
+        unit = ''
+        try:
+            unit = (ch.unit or '').strip() if ch else ''
+        except Exception:
+            unit = ''
+        if unit:
+            return f"{nm} [{unit}]"
+        return nm
+
+    extra_codes.sort(key=lambda c: (_nat_key(_display_name(c)), _nat_key(c)))
+
+    EXTRA_START_COL = 26  # Z
+    extra_col_map = {code: (EXTRA_START_COL + i) for i, code in enumerate(extra_codes)}
+
+
     template_path = TEMPLATE_FILE
     if not os.path.isfile(template_path):
         return jsonify({"ok": False, "error": "Не найден template.xlsx рядом с server.py"}), 400
@@ -626,6 +687,12 @@ def _api_export_template_impl():
         start_row = 4
         pattern_row = start_row
         max_col = ws.max_column
+        # Ensure we have enough columns for extra sensors (starting from Z)
+        required_last_col = 0
+        if extra_codes:
+            required_last_col = EXTRA_START_COL + len(extra_codes) - 1
+        if required_last_col and required_last_col > max_col:
+            max_col = required_last_col
 
         # Find formula columns in the pattern row and remember pattern formulas
         formula_cols = set()
@@ -723,6 +790,19 @@ def _api_export_template_impl():
             if selected and code not in selected:
                 continue
             writers.append((code, colnum))
+
+        # Write headers for extra sensors (row above data, starting from column Z)
+        if extra_codes:
+            header_row = start_row - 1
+            for code in extra_codes:
+                colnum = extra_col_map.get(code)
+                if not colnum:
+                    continue
+                try:
+                    ws.cell(row=header_row, column=colnum).value = _template_header(code)
+                except Exception:
+                    ws.cell(row=header_row, column=colnum).value = _display_name(code)
+
 # Write data
         for j, idx in enumerate(idxs):
             r = start_row + j
@@ -748,6 +828,22 @@ def _api_export_template_impl():
                             ws.cell(row=r, column=colnum).value = float(v)
                         except Exception:
                             ws.cell(row=r, column=colnum).value = None
+
+
+                # Extra sensors (not mapped to D..T) -> from column Z onward
+                for code in extra_codes:
+                    colnum = extra_col_map.get(code)
+                    if not colnum:
+                        continue
+                    v = rows[idx].get(code)
+                    if v is None:
+                        ws.cell(row=r, column=colnum).value = None
+                    else:
+                        try:
+                            ws.cell(row=r, column=colnum).value = float(v)
+                        except Exception:
+                            ws.cell(row=r, column=colnum).value = None
+
             else:
                 ws.cell(row=r, column=3).value = None
 
