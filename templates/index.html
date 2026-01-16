@@ -5,7 +5,7 @@
   <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>LeMuRe Viewer</title>
-  <link rel="stylesheet" href="/static/style.css"/>
+  <link rel="stylesheet" href="/static/style.css?v=20260116080456"/>
   <!-- Plotly через CDN (если интернет закрыт — скажи, сделаю офлайн-версию с локальным plotly.js) -->
   <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 </head>
@@ -74,6 +74,7 @@
             <button id="btnCsv">Экспорт CSV</button>
             <button id="btnXlsx">Экспорт Excel</button>
             <button id="btnTpl">В шаблон XLSX</button>
+            <span id="tplStatus" class="statusText"></span>
           </div>
 
           <div class="row2">
@@ -100,6 +101,6 @@
     </section>
   </div>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=20260116080456"></script>
 </body>
 </html>

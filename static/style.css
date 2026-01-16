@@ -48,3 +48,11 @@ button { padding: 7px 12px; cursor:pointer; }
 
 /* Template export button */
 #btnTpl { white-space: nowrap; }
+
+
+.statusText{margin-left:10px;font-size:13px;opacity:.85;}
+.statusText .spinner{display:inline-block;width:12px;height:12px;border:2px solid #bbb;border-top-color:#333;border-radius:50%;animation:spin .8s linear infinite;vertical-align:-2px;margin-right:6px;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.btnBusy{opacity:.7;pointer-events:none;}
+
+#tplStatus{display:inline-block;min-width:260px;}

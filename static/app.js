@@ -617,16 +617,86 @@ function drawPlot() {
 function exportTemplate() {
   if(!LOADED || !SUMMARY) { alert("Сначала загрузите тест"); return; }
 
+  // Respect selected channels (same as plot/CSV/XLSX exports)
+  const codes = getSelectedCodes();
+  if(!codes || !codes.length) {
+    alert("Выбери хотя бы один канал");
+    return;
+  }
+
   let start_ms = SUMMARY.start_ms;
   let end_ms = SUMMARY.end_ms;
+  // Prefer the remembered range; if it's missing, try to read the current Plotly x-range
   if(currentRange && currentRange.length === 2) {
     start_ms = Math.min(currentRange[0], currentRange[1]);
     end_ms   = Math.max(currentRange[0], currentRange[1]);
+  } else {
+    try {
+      const plotDiv = document.getElementById("plot");
+      const rng = plotDiv && plotDiv._fullLayout && plotDiv._fullLayout.xaxis && plotDiv._fullLayout.xaxis.range;
+      if(rng && rng.length === 2) {
+        const s = Date.parse(rng[0]);
+        const e = Date.parse(rng[1]);
+        if(!isNaN(s) && !isNaN(e)) {
+          start_ms = Math.min(s, e);
+          end_ms = Math.max(s, e);
+        }
+      }
+    } catch(_) {}
   }
 
-  const url = `/api/export_template?start_ms=${start_ms}&end_ms=${end_ms}`;
+  const btn = el("btnTpl");
+  const st = el("tplStatus");
+
+  const url = `/api/export_template?start_ms=${start_ms}&end_ms=${end_ms}&channels=${encodeURIComponent(codes.join(","))}`;
   log(`Export TEMPLATE: ${new Date(start_ms).toISOString()} -> ${new Date(end_ms).toISOString()} (20s grid)`);
-  window.location.href = url;
+
+  if(btn) { btn.classList.add("btnBusy"); btn.textContent = "Готовлю шаблон…"; }
+  if(st)  { st.innerHTML = `<span class="spinner"></span>Формирую Excel… <span style="opacity:.85">(каналы: ${codes.length}, диапазон: ${new Date(start_ms).toLocaleString()} → ${new Date(end_ms).toLocaleString()})</span>`; }
+
+  fetch(url, {method:"GET"})
+    .then(async (resp) => {
+      if(!resp.ok) {
+        const txt = await resp.text().catch(()=> "");
+        throw new Error(`HTTP ${resp.status} ${resp.statusText} ${txt}`.trim());
+      }
+
+      // get filename from Content-Disposition if present
+      let filename = "template_filled.xlsx";
+      const cd = resp.headers.get("Content-Disposition") || resp.headers.get("content-disposition");
+      if(cd) {
+        const m = /filename\*?=(?:UTF-8''|")?([^\";]+)/i.exec(cd);
+        if(m && m[1]) {
+          filename = decodeURIComponent(m[1].replace(/"/g,"").trim());
+        }
+      }
+
+      const blob = await resp.blob();
+      const blobUrl = URL.createObjectURL(blob);
+
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+
+      setTimeout(()=>URL.revokeObjectURL(blobUrl), 15000);
+
+      log(`Template ready: ${filename} (${Math.round(blob.size/1024)} KB)`);
+      if(st) st.innerHTML = `Готово: <b>${filename}</b> (скачивание началось)`;
+      setTimeout(()=>{ if(st) st.textContent = ""; }, 7000);
+    })
+    .catch((e) => {
+      console.error(e);
+      log("Template export error: " + e.message);
+      alert("Ошибка при формировании шаблона. Смотри блок 'Лог'.\n\n" + e.message);
+      if(st) st.textContent = "Ошибка (см. лог)";
+      setTimeout(()=>{ if(st) st.textContent = ""; }, 7000);
+    })
+    .finally(() => {
+      if(btn) { btn.classList.remove("btnBusy"); btn.textContent = "В шаблон XLSX"; }
+    });
 }
 
 function exportData(fmt) {

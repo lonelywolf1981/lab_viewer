@@ -1,8 +1,8 @@
+from __future__ import annotations
+
 # server.py
 # Локальный веб-просмотрщик LeMuRe (Windows 7 friendly)
 # Запуск: python server.py
-
-from __future__ import annotations
 
 import os
 import re
@@ -15,6 +15,17 @@ from bisect import bisect_left, bisect_right
 from typing import List, Dict, Any, Tuple
 
 from flask import Flask, render_template, request, jsonify, send_file
+
+def _send_file_compat(fp, mimetype: str, filename: str):
+    """send_file compat for different Flask versions (download_name vs attachment_filename)."""
+    try:
+        return send_file(fp, mimetype=mimetype, as_attachment=True, download_name=filename)
+    except TypeError:
+        return send_file(fp, mimetype=mimetype, as_attachment=True, attachment_filename=filename)
+
+
+
+
 
 from lemure_reader import load_test, ChannelInfo
 
@@ -107,6 +118,18 @@ def _slice_by_time(t_list: List[int], start_ms: int, end_ms: int) -> Tuple[int, 
     i0 = bisect_left(t_list, start_ms)
     i1 = bisect_right(t_list, end_ms)
     return i0, i1
+
+
+@app.after_request
+def add_no_cache_headers(resp):
+    # Disable aggressive caching so browser always picks up latest JS/CSS after updates
+    try:
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+    except Exception:
+        pass
+    return resp
 
 @app.route("/")
 def index():
@@ -494,6 +517,52 @@ def api_export_template():
         else:
             idxs.append(idx)
 
+    # Respect selected channels (optional query param "channels" like other exports)
+    # If provided, only those channels will be written to the template.
+    ch_arg = (request.args.get("channels") or "").strip()
+    selected = set([c.strip() for c in ch_arg.split(",") if c.strip()])
+    # If the browser did not send selected channels, do NOT export everything silently.
+    if not selected:
+        return jsonify({"ok": False, "error": "Не получены выбранные каналы (похоже, браузер использует старый app.js). Нажми Ctrl+F5 и попробуй снова."}), 400
+
+    # Debug: log what we received (goes to run log)
+    try:
+        print("[TEMPLATE] start_ms=", start_ms, "end_ms=", end_ms, "channels=", ",".join(sorted(selected)))
+    except Exception:
+        pass
+    def resolve_for_selection(key: str) -> str:
+        """Resolve a channel code for a given key.
+
+        If selection is provided, try to pick a matching channel that is selected.
+        Otherwise fall back to the standard preference (A-*, C-*, plain).
+        """
+        matches = []
+        # Exact match
+        if key in cols:
+            matches.append(key)
+        # Suffix match (A-T1, C-T1, etc.)
+        suf = f"-{key}"
+        for c in cols:
+            if c.endswith(suf) and c not in matches:
+                matches.append(c)
+
+        if not matches:
+            return ""
+
+        if selected:
+            for c in matches:
+                if c in selected:
+                    return c
+            # Selection is provided but none of the matching channels were selected
+            return ""
+
+        # Prefer A- then C- then the first remaining
+        for pref in ("A-", "C-"):
+            for c in matches:
+                if c.startswith(pref):
+                    return c
+        return matches[0]
+
     # Resolve channel -> template column mapping (D..T)
     key_to_col = {
         "Pc": 4,
@@ -514,7 +583,7 @@ def api_export_template():
         "V": 19,
         "W": 20,
     }
-    key_to_code = {k: _resolve_channel(cols, k) for k in key_to_col.keys()}
+    key_to_code = {k: resolve_for_selection(k) for k in key_to_col.keys()}
 
     template_path = TEMPLATE_FILE
     if not os.path.isfile(template_path):
@@ -599,6 +668,9 @@ def api_export_template():
                     code = key_to_code.get(key) or ""
                     if not code:
                         continue
+                    if selected and code not in selected:
+                        # Only write selected channels
+                        continue
                     v = rows[idx].get(code)
                     if v is None:
                         ws.cell(row=r, column=colnum).value = None
@@ -624,11 +696,10 @@ def api_export_template():
         bio.seek(0)
 
         fn = f"template_filled_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-        return send_file(
+        return _send_file_compat(
             bio,
-            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            as_attachment=True,
-            download_name=fn,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            fn,
         )
 
     except Exception as e:
