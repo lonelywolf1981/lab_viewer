@@ -580,12 +580,23 @@ function labelFor(code) {
   return c ? c.label : code;
 }
 
+
 function drawPlot() {
   if(!LOADED || !SUMMARY) return;
   const codes = getSelectedCodes();
   if(!codes.length) { alert("Выбери хотя бы один канал"); return; }
 
   const step = getStep();
+
+  // Запоминаем текущий видимый диапазон ДО перерисовки, чтобы он не сбрасывался при смене датчиков
+  let desiredRange = null;
+  const vrBefore = getVisibleRangeFromPlot();
+  if(vrBefore && vrBefore.length === 2) {
+    desiredRange = [Math.min(vrBefore[0], vrBefore[1]), Math.max(vrBefore[0], vrBefore[1])];
+  } else if(currentRange && currentRange.length === 2) {
+    desiredRange = [Math.min(currentRange[0], currentRange[1]), Math.max(currentRange[0], currentRange[1])];
+  }
+
   const start_ms = SUMMARY.start_ms;
   const end_ms = SUMMARY.end_ms;
 
@@ -610,7 +621,8 @@ function drawPlot() {
       });
 
       const layout = {
-    uirevision: "lemure-v14",
+        // Важно: uirevision + Plotly.react сохраняют zoom/диапазон при обновлении данных
+        uirevision: "lemure-v14",
         margin: {l: 70, r: 20, t: 140, b: 90},
         hovermode: "x unified",
         xaxis: {
@@ -642,32 +654,51 @@ function drawPlot() {
         scrollZoom: true,
       };
 
-      Plotly.newPlot("plot", traces, layout, config);
-
       const plotDiv = el("plot");
-      plotDiv.on("plotly_relayout", (ev) => {
-        if(ev && ev["xaxis.autorange"] === true) {
+      const p = Plotly.react("plot", traces, layout, config);
+
+      Promise.resolve(p).then(() => {
+        // Не накапливаем слушатели при каждом redraw
+        try {
+          if(plotDiv && plotDiv.removeAllListeners) plotDiv.removeAllListeners("plotly_relayout");
+        } catch(_) {}
+
+        plotDiv.on("plotly_relayout", (ev) => {
+          if(ev && ev["xaxis.autorange"] === true) {
+            currentRange = [SUMMARY.start_ms, SUMMARY.end_ms];
+            updateRangeText();
+            return;
+          }
+          const rr = parseRelayoutRange(ev) || getVisibleRangeFromPlot();
+          if(rr && rr.length === 2) {
+            currentRange = [Math.min(rr[0], rr[1]), Math.max(rr[0], rr[1])];
+            updateRangeText();
+          }
+        });
+
+        // Восстановить диапазон (если был выбран) после обновления датчиков
+        if(desiredRange && desiredRange.length === 2) {
+          const r0 = new Date(desiredRange[0]).toISOString();
+          const r1 = new Date(desiredRange[1]).toISOString();
+          try {
+            Plotly.relayout(plotDiv, {"xaxis.range": [r0, r1]});
+          } catch(_) {}
+          currentRange = desiredRange.slice();
+        } else if(!currentRange) {
           currentRange = [SUMMARY.start_ms, SUMMARY.end_ms];
-          updateRangeText();
-          return;
         }
-        const rr = parseRelayoutRange(ev) || getVisibleRangeFromPlot();
-        if(rr && rr.length === 2) {
-          currentRange = [Math.min(rr[0], rr[1]), Math.max(rr[0], rr[1])];
-          updateRangeText();
-        }
+        updateRangeText();
       });
 
-      // Keep current zoom/selection when channels change
-      const vr2 = getVisibleRangeFromPlot();
-      if(vr2) currentRange = vr2;
+      // Текст диапазона обновим сразу (для экспорта), даже если relayout применится чуть позже
+      if(desiredRange && desiredRange.length === 2) currentRange = desiredRange.slice();
       if(!currentRange) currentRange = [SUMMARY.start_ms, SUMMARY.end_ms];
       updateRangeText();
+
       log(`Plot updated: channels=${codes.length}, step=${step}`);
     })
     .catch(e=>log("drawPlot error: " + e));
 }
-
 
 
 

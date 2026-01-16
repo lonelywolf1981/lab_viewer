@@ -61,11 +61,87 @@ button { padding: 7px 12px; cursor:pointer; }
 .stylePanel{margin-top:10px;padding:10px;border:1px dashed #ddd;border-radius:10px;background:#fff;}
 .styleTitle{font-weight:bold;margin-bottom:6px;}
 .mini{font-size:11px;opacity:.85;}
-.scaleGrid{display:flex;flex-direction:column;gap:6px;margin-top:6px;}
-.scaleRow{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.scaleGrid{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  margin-top:6px;
+  /* держим W/X/Y в одну строку, а при узком окне даём горизонтальную прокрутку */
+  overflow-x:auto;
+  padding-bottom:2px;
+}
+
+/* Компактный ряд W/X/Y (одна строка) */
+.scaleRow{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex-wrap:nowrap;
+  white-space:nowrap;
+}
+
 .scaleName{font-weight:bold;min-width:14px;}
-.scaleRow input{width:82px;padding:4px 6px;}
+
+.scaleGroup{
+  display:flex;
+  align-items:center;
+  gap:4px;
+  flex:0 0 auto;
+}
+
+.sgLabel{
+  width:24px;
+  text-align:right;
+  font-size:12px;
+  opacity:.85;
+}
+
+.scaleGroup input[type=number]{
+  width:75px;
+  padding:3px 5px;
+  font-size:12px;
+  box-sizing:border-box;
+  position:relative;
+  z-index:1;
+}
 #rmColor{width:44px;height:28px;padding:0;border:1px solid #ddd;border-radius:6px;}
 #rmIntensity{min-width:180px;}
 
-.scaleRow input[type=color]{width:44px;height:28px;padding:0;border:1px solid #ddd;border-radius:6px;}
+.scaleGroup input[type=color]{
+  width:34px;
+  height:24px;
+  padding:0;
+  border:1px solid #ddd;
+  border-radius:6px;
+  box-sizing:border-box;
+  position:relative;
+  z-index:3; /* всегда кликабельно */
+}
+
+/* В некоторых браузерах у input[type=color] бывают внутренние отступы */
+.scaleGroup input[type=color]::-webkit-color-swatch-wrapper{padding:0;}
+.scaleGroup input[type=color]::-webkit-color-swatch{border:none;border-radius:6px;}
+
+
+/* Step hints */
+.qmark{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:18px;
+  height:18px;
+  border-radius:50%;
+  border:1px solid #bbb;
+  color:#555;
+  font-size:12px;
+  cursor:help;
+  user-select:none;
+  background:#fff;
+}
+.helpText{
+  font-size:12px;
+  color:#666;
+  line-height:1.35;
+  margin-top:2px;
+  margin-bottom:6px;
+}

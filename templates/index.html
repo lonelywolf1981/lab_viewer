@@ -5,7 +5,7 @@
   <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>LeMuRe Viewer</title>
-  <link rel="stylesheet" href="/static/style.css?v=20260116170000"/>
+  <link rel="stylesheet" href="/static/style.css?v=20260116190000"/>
   <!-- Plotly через CDN (если интернет закрыт — скажи, сделаю офлайн-версию с локальным plotly.js) -->
   <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 </head>
@@ -62,9 +62,14 @@
           <div class="boxTitle">Диапазон / Экспорт</div>
 
           <div class="row2">
-            <label>Шаг (каждый N-й замер):</label>
-            <input id="step" type="number" min="1" value="1" style="width:80px"/>
-          </div>
+  <label>Шаг (каждый N-й замер):</label>
+  <input id="step" type="number" min="1" value="1" style="width:80px"
+         title="Прореживание данных: 1 — каждый замер; 2 — каждый второй; 10 — каждый десятый. Чем больше N, тем быстрее график и меньше размер экспорта, но ниже детализация."/>
+  <span class="qmark" title="Прореживание данных: 1 — каждый замер; 2 — каждый второй; 10 — каждый десятый. Чем больше N, тем быстрее график и меньше размер экспорта, но ниже детализация.">?</span>
+</div>
+<div class="helpText">
+  1 — все точки. 2 — каждая 2-я точка. Большие значения ускоряют построение/выгрузку, но уменьшают точность.
+</div>
 
           <div class="row2">
             <button id="btnDraw">Построить график</button>
@@ -99,31 +104,58 @@
 
             <div class="scaleGrid">
               <div class="scaleRow">
-  <div class="scaleName">W</div>
-  <label>min</label><input id="wMin" type="number" step="0.1"/>
-  <input id="wCMin" type="color" title="Цвет min"/>
-  <label>opt</label><input id="wOpt" type="number" step="0.1"/>
-  <input id="wCOpt" type="color" title="Цвет opt"/>
-  <label>max</label><input id="wMax" type="number" step="0.1"/>
-  <input id="wCMax" type="color" title="Цвет max"/>
+                <div class="scaleName">W</div>
+                <div class="scaleGroup">
+                  <span class="sgLabel">min</span>
+                  <input id="wMin" type="number" step="0.1"/>
+                  <input id="wCMin" type="color" title="Цвет min"/>
+                </div>
+                <div class="scaleGroup">
+                  <span class="sgLabel">opt</span>
+                  <input id="wOpt" type="number" step="0.1"/>
+                  <input id="wCOpt" type="color" title="Цвет opt"/>
+                </div>
+                <div class="scaleGroup">
+                  <span class="sgLabel">max</span>
+                  <input id="wMax" type="number" step="0.1"/>
+                  <input id="wCMax" type="color" title="Цвет max"/>
+                </div>
 </div>
               <div class="scaleRow">
-  <div class="scaleName">X</div>
-  <label>min</label><input id="xMin" type="number" step="0.1"/>
-  <input id="xCMin" type="color" title="Цвет min"/>
-  <label>opt</label><input id="xOpt" type="number" step="0.1"/>
-  <input id="xCOpt" type="color" title="Цвет opt"/>
-  <label>max</label><input id="xMax" type="number" step="0.1"/>
-  <input id="xCMax" type="color" title="Цвет max"/>
+                <div class="scaleName">X</div>
+                <div class="scaleGroup">
+                  <span class="sgLabel">min</span>
+                  <input id="xMin" type="number" step="0.1"/>
+                  <input id="xCMin" type="color" title="Цвет min"/>
+                </div>
+                <div class="scaleGroup">
+                  <span class="sgLabel">opt</span>
+                  <input id="xOpt" type="number" step="0.1"/>
+                  <input id="xCOpt" type="color" title="Цвет opt"/>
+                </div>
+                <div class="scaleGroup">
+                  <span class="sgLabel">max</span>
+                  <input id="xMax" type="number" step="0.1"/>
+                  <input id="xCMax" type="color" title="Цвет max"/>
+                </div>
 </div>
               <div class="scaleRow">
-  <div class="scaleName">Y</div>
-  <label>min</label><input id="yMin" type="number" step="0.1"/>
-  <input id="yCMin" type="color" title="Цвет min"/>
-  <label>opt</label><input id="yOpt" type="number" step="0.1"/>
-  <input id="yCOpt" type="color" title="Цвет opt"/>
-  <label>max</label><input id="yMax" type="number" step="0.1"/>
-  <input id="yCMax" type="color" title="Цвет max"/>
+                <div class="scaleName">Y</div>
+                <div class="scaleGroup">
+                  <span class="sgLabel">min</span>
+                  <input id="yMin" type="number" step="0.1"/>
+                  <input id="yCMin" type="color" title="Цвет min"/>
+                </div>
+                <div class="scaleGroup">
+                  <span class="sgLabel">opt</span>
+                  <input id="yOpt" type="number" step="0.1"/>
+                  <input id="yCOpt" type="color" title="Цвет opt"/>
+                </div>
+                <div class="scaleGroup">
+                  <span class="sgLabel">max</span>
+                  <input id="yMax" type="number" step="0.1"/>
+                  <input id="yCMax" type="color" title="Цвет max"/>
+                </div>
 </div>
             </div>
 
@@ -158,6 +190,6 @@
     </section>
   </div>
 
-  <script src="/static/app.js?v=20260116170000"></script>
+  <script src="/static/app.js?v=20260116190000"></script>
 </body>
 </html>
