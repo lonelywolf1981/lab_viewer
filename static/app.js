@@ -858,9 +858,36 @@ function _collectStyleSettingsFromUI() {
       intensity: Math.max(0, Math.min(100, parseInt(el('rmIntensity')?.value || '100', 10)))
     },
     scales: {
-      W: {min: _num(el('wMin')?.value, 0), opt: _num(el('wOpt')?.value, 1), max: _num(el('wMax')?.value, 2)},
-      X: {min: _num(el('xMin')?.value, 0), opt: _num(el('xOpt')?.value, 9), max: _num(el('xMax')?.value, 18)},
-      Y: {min: _num(el('yMin')?.value, 0), opt: _num(el('yOpt')?.value, 5), max: _num(el('yMax')?.value, 10)}
+      W: {
+        min: _num(el('wMin')?.value, 0),
+        opt: _num(el('wOpt')?.value, 1),
+        max: _num(el('wMax')?.value, 2),
+        colors: {
+          min: (el('wCMin')?.value || '#0000FF'),
+          opt: (el('wCOpt')?.value || '#00FF00'),
+          max: (el('wCMax')?.value || '#FF0000'),
+        }
+      },
+      X: {
+        min: _num(el('xMin')?.value, 0),
+        opt: _num(el('xOpt')?.value, 9),
+        max: _num(el('xMax')?.value, 18),
+        colors: {
+          min: (el('xCMin')?.value || '#0000FF'),
+          opt: (el('xCOpt')?.value || '#00FF00'),
+          max: (el('xCMax')?.value || '#FF0000'),
+        }
+      },
+      Y: {
+        min: _num(el('yMin')?.value, 0),
+        opt: _num(el('yOpt')?.value, 5),
+        max: _num(el('yMax')?.value, 10),
+        colors: {
+          min: (el('yCMin')?.value || '#0000FF'),
+          opt: (el('yCOpt')?.value || '#00FF00'),
+          max: (el('yCMax')?.value || '#FF0000'),
+        }
+      }
     }
   };
 }
@@ -878,6 +905,13 @@ function _applyStyleSettingsToUI(s) {
   _set('wMin', w.min ?? 0); _set('wOpt', w.opt ?? 1); _set('wMax', w.max ?? 2);
   _set('xMin', x.min ?? 0); _set('xOpt', x.opt ?? 9); _set('xMax', x.max ?? 18);
   _set('yMin', y.min ?? 0); _set('yOpt', y.opt ?? 5); _set('yMax', y.max ?? 10);
+
+  const wc = (w.colors || {});
+  const xc = (x.colors || {});
+  const yc = (y.colors || {});
+  _set('wCMin', wc.min || '#0000FF'); _set('wCOpt', wc.opt || '#00FF00'); _set('wCMax', wc.max || '#FF0000');
+  _set('xCMin', xc.min || '#0000FF'); _set('xCOpt', xc.opt || '#00FF00'); _set('xCMax', xc.max || '#FF0000');
+  _set('yCMin', yc.min || '#0000FF'); _set('yCOpt', yc.opt || '#00FF00'); _set('yCMax', yc.max || '#FF0000');
 }
 
 function loadStyleSettings() {

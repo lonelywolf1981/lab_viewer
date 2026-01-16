@@ -89,11 +89,8 @@ DEFAULT_VIEWER_SETTINGS: Dict[str, Any] = {
         'color': '#FFF2CC',   # мягкий жёлтый (как в примере)
         'intensity': 100,
     },
-    'scales': {
-        'W': {'min': 0, 'opt': 1, 'max': 2},
-        'X': {'min': 0, 'opt': 9, 'max': 18},
-        'Y': {'min': 0, 'opt': 5, 'max': 10},
-    },
+    'scales': {        'W': {'min': 0, 'opt': 1, 'max': 2, 'colors': {'min': '#0000FF', 'opt': '#00FF00', 'max': '#FF0000'}},        'X': {'min': 0, 'opt': 9, 'max': 18, 'colors': {'min': '#0000FF', 'opt': '#00FF00', 'max': '#FF0000'}},        'Y': {'min': 0, 'opt': 5, 'max': 10, 'colors': {'min': '#0000FF', 'opt': '#00FF00', 'max': '#FF0000'}},
+},
 }
 
 def _deep_merge(dst: Dict[str, Any], src: Dict[str, Any]) -> Dict[str, Any]:
@@ -188,6 +185,15 @@ def load_viewer_settings() -> Dict[str, Any]:
             merged['min'] = merged['opt'] - 1
         if merged['opt'] >= merged['max']:
             merged['max'] = merged['opt'] + 1
+        # Colors for 3-point scale (min/opt/max)
+        colors = merged.get('colors') if isinstance(merged.get('colors'), dict) else {}
+        def _col(key, default):
+            return _normalize_hex_color(str(colors.get(key) or ''), default=default)
+        merged['colors'] = {
+            'min': _col('min', '#0000FF'),
+            'opt': _col('opt', '#00FF00'),
+            'max': _col('max', '#FF0000'),
+        }
         out_scales[k] = merged
     s['scales'] = out_scales
 
@@ -228,6 +234,15 @@ def normalize_viewer_settings(user_s: Dict[str, Any]) -> Dict[str, Any]:
             merged['min'] = merged['opt'] - 1
         if merged['opt'] >= merged['max']:
             merged['max'] = merged['opt'] + 1
+        # Colors for 3-point scale (min/opt/max)
+        colors = merged.get('colors') if isinstance(merged.get('colors'), dict) else {}
+        def _col(key, default):
+            return _normalize_hex_color(str(colors.get(key) or ''), default=default)
+        merged['colors'] = {
+            'min': _col('min', '#0000FF'),
+            'opt': _col('opt', '#00FF00'),
+            'max': _col('max', '#FF0000'),
+        }
         out_scales[k] = merged
     s['scales'] = out_scales
     return s
@@ -1106,12 +1121,37 @@ def _api_export_template_impl():
                     if vopt >= vmax:
                         vmax = vopt + 1
 
+                    # Colors from settings (independent per column)
+
+
+                    colors = spec.get('colors') if isinstance(spec.get('colors'), dict) else {}
+
+
+                    def _rgb6(v, default):
+
+
+                        hx = _normalize_hex_color(str(v or ''), default=default)
+
+
+                        return hx[1:]
+
+
+                    col_min = _rgb6(colors.get('min'), '#0000FF')
+
+
+                    col_opt = _rgb6(colors.get('opt'), '#00FF00')
+
+
+                    col_max = _rgb6(colors.get('max'), '#FF0000')
+
+
+
                     ws.conditional_formatting.add(
                         f"{col_letter}{first_r}:{col_letter}{last_r}",
                         ColorScaleRule(
-                            start_type="num", start_value=vmin, start_color="0000FF",
-                            mid_type="num", mid_value=vopt, mid_color="00FF00",
-                            end_type="num", end_value=vmax, end_color="FF0000",
+                            start_type="num", start_value=vmin, start_color=col_min,
+                            mid_type="num", mid_value=vopt, mid_color=col_opt,
+                            end_type="num", end_value=vmax, end_color=col_max,
                         ),
                     )
 
