@@ -1,3 +1,55 @@
+
+function parsePlotlyDate(x) {
+  if (typeof x === "number") return x;
+  if (!x) return NaN;
+  if (x instanceof Date) return x.getTime();
+  let t = Date.parse(x);
+  if (!Number.isNaN(t)) return t;
+  if (typeof x === "string") {
+    // Plotly иногда отдаёт 'YYYY-MM-DD HH:MM:SS' без 'T' — поправим
+    if (x.includes(" ") && !x.includes("T")) {
+      t = Date.parse(x.replace(" ", "T"));
+      if (!Number.isNaN(t)) return t;
+    }
+    // Последняя попытка: убрать миллисекунды
+    t = Date.parse(x.replace(/\.\d+/, ""));
+    if (!Number.isNaN(t)) return t;
+  }
+  return NaN;
+}
+
+function getVisibleRangeFromPlot() {
+  const plot = document.getElementById("plot");
+  try {
+    const xa =
+      (plot && plot.layout && plot.layout.xaxis) ||
+      (plot && plot._fullLayout && plot._fullLayout.xaxis);
+    const rng = xa && xa.range;
+    if (rng && rng.length === 2) {
+      const a = parsePlotlyDate(rng[0]);
+      const b = parsePlotlyDate(rng[1]);
+      if (!Number.isNaN(a) && !Number.isNaN(b)) return [a, b];
+    }
+  } catch (e) {}
+  return null;
+}
+
+function parseRelayoutRange(ev) {
+  try {
+    if (!ev) return null;
+    if (ev["xaxis.range"] && Array.isArray(ev["xaxis.range"])) {
+      const a = parsePlotlyDate(ev["xaxis.range"][0]);
+      const b = parsePlotlyDate(ev["xaxis.range"][1]);
+      if (!Number.isNaN(a) && !Number.isNaN(b)) return [a, b];
+    }
+    if (ev["xaxis.range[0]"] != null && ev["xaxis.range[1]"] != null) {
+      const a = parsePlotlyDate(ev["xaxis.range[0]"]);
+      const b = parsePlotlyDate(ev["xaxis.range[1]"]);
+      if (!Number.isNaN(a) && !Number.isNaN(b)) return [a, b];
+    }
+  } catch (e) {}
+  return null;
+}
 // LeMuRe Viewer UI (selection like <select multiple> + drag reorder + export by visible X range)
 let LOADED = false;
 
@@ -44,10 +96,13 @@ function fmtRange(ms) {
   return `${fmt(a)}  →  ${fmt(b)}  (${h}h ${m}m ${s}s)`;
 }
 
-function setRangeText() {
-  const r = currentRange && currentRange.length===2 ? [Math.min(currentRange[0], currentRange[1]), Math.max(currentRange[0], currentRange[1])] : null;
+function updateRangeText() {
+  const r = (currentRange && currentRange.length===2)
+    ? [Math.min(currentRange[0], currentRange[1]), Math.max(currentRange[0], currentRange[1])]
+    : null;
   el("rangeText").textContent = r ? fmtRange(r) : "—";
 }
+
 
 function pickFolder() {
   fetch("/api/pick_folder", {method:"POST"})
@@ -498,7 +553,7 @@ function loadTest() {
         `Начало: <b>${SUMMARY.start}</b><br>` +
         `Конец: <b>${SUMMARY.end}</b>`;
       currentRange = [SUMMARY.start_ms, SUMMARY.end_ms];
-      setRangeText();
+      updateRangeText();
     } else {
       el("summary").textContent = "Нет данных";
     }
@@ -553,6 +608,7 @@ function drawPlot() {
       });
 
       const layout = {
+    uirevision: "lemure-v14",
         margin: {l: 70, r: 20, t: 140, b: 90},
         hovermode: "x unified",
         xaxis: {
@@ -588,25 +644,23 @@ function drawPlot() {
 
       const plotDiv = el("plot");
       plotDiv.on("plotly_relayout", (ev) => {
-        if(ev["xaxis.autorange"] === true) {
+        if(ev && ev["xaxis.autorange"] === true) {
           currentRange = [SUMMARY.start_ms, SUMMARY.end_ms];
-          setRangeText();
+          updateRangeText();
           return;
         }
-        const r0 = ev["xaxis.range[0]"];
-        const r1 = ev["xaxis.range[1]"];
-        if(r0 && r1) {
-          const s = Date.parse(r0);
-          const e = Date.parse(r1);
-          if(!isNaN(s) && !isNaN(e)) {
-            currentRange = [Math.min(s,e), Math.max(s,e)];
-            setRangeText();
-          }
+        const rr = parseRelayoutRange(ev) || getVisibleRangeFromPlot();
+        if(rr && rr.length === 2) {
+          currentRange = [Math.min(rr[0], rr[1]), Math.max(rr[0], rr[1])];
+          updateRangeText();
         }
       });
 
-      currentRange = [SUMMARY.start_ms, SUMMARY.end_ms];
-      setRangeText();
+      // Keep current zoom/selection when channels change
+      const vr2 = getVisibleRangeFromPlot();
+      if(vr2) currentRange = vr2;
+      if(!currentRange) currentRange = [SUMMARY.start_ms, SUMMARY.end_ms];
+      updateRangeText();
       log(`Plot updated: channels=${codes.length}, step=${step}`);
     })
     .catch(e=>log("drawPlot error: " + e));
@@ -614,109 +668,158 @@ function drawPlot() {
 
 
 
-function exportTemplate() {
+
+
+function exportData(fmt) {
   if(!LOADED || !SUMMARY) { alert("Сначала загрузите тест"); return; }
 
-  // Respect selected channels (same as plot/CSV/XLSX exports)
+  fmt = (fmt || "csv").toLowerCase();
+  if(fmt !== "csv" && fmt !== "xlsx") fmt = "csv";
+
   const codes = getSelectedCodes();
   if(!codes || !codes.length) {
     alert("Выбери хотя бы один канал");
     return;
   }
 
+  // Интервал: сначала из видимой области графика (zoom/range-slider), иначе из currentRange
   let start_ms = SUMMARY.start_ms;
   let end_ms = SUMMARY.end_ms;
-  // Prefer the remembered range; if it's missing, try to read the current Plotly x-range
-  if(currentRange && currentRange.length === 2) {
+  const vr = getVisibleRangeFromPlot();
+  if(vr && vr.length === 2) {
+    start_ms = Math.min(vr[0], vr[1]);
+    end_ms   = Math.max(vr[0], vr[1]);
+  } else if(currentRange && currentRange.length === 2) {
     start_ms = Math.min(currentRange[0], currentRange[1]);
     end_ms   = Math.max(currentRange[0], currentRange[1]);
-  } else {
-    try {
-      const plotDiv = document.getElementById("plot");
-      const rng = plotDiv && plotDiv._fullLayout && plotDiv._fullLayout.xaxis && plotDiv._fullLayout.xaxis.range;
-      if(rng && rng.length === 2) {
-        const s = Date.parse(rng[0]);
-        const e = Date.parse(rng[1]);
-        if(!isNaN(s) && !isNaN(e)) {
-          start_ms = Math.min(s, e);
-          end_ms = Math.max(s, e);
-        }
-      }
-    } catch(_) {}
   }
 
-  const btn = el("btnTpl");
-  const st = el("tplStatus");
+  const step = getStep();
 
-  const url = `/api/export_template?start_ms=${start_ms}&end_ms=${end_ms}&channels=${encodeURIComponent(codes.join(","))}`;
-  log(`Export TEMPLATE: ${new Date(start_ms).toISOString()} -> ${new Date(end_ms).toISOString()} (20s grid)`);
+  const st  = el("tplStatus");
+  const bc = el("btnCsv");
+  const bx = el("btnXlsx");
+  if(bc) bc.disabled = true;
+  if(bx) bx.disabled = true;
+  if(st) st.innerHTML = `<span class="spinner"></span>Экспортирую ${fmt.toUpperCase()}… <span style="opacity:.85">(каналы: ${codes.length}, диапазон: ${new Date(start_ms).toLocaleString()} → ${new Date(end_ms).toLocaleString()})</span>`;
 
-  if(btn) { btn.classList.add("btnBusy"); btn.textContent = "Готовлю шаблон…"; }
-  if(st)  { st.innerHTML = `<span class="spinner"></span>Формирую Excel… <span style="opacity:.85">(каналы: ${codes.length}, диапазон: ${new Date(start_ms).toLocaleString()} → ${new Date(end_ms).toLocaleString()})</span>`; }
+  const qs = new URLSearchParams();
+  qs.set("format", fmt);
+  qs.set("start_ms", String(start_ms));
+  qs.set("end_ms", String(end_ms));
+  qs.set("channels", codes.join(","));
+  qs.set("step", String(step));
 
-  fetch(url, {method:"GET"})
-    .then(async (resp) => {
-      if(!resp.ok) {
-        const txt = await resp.text().catch(()=> "");
-        throw new Error(`HTTP ${resp.status} ${resp.statusText} ${txt}`.trim());
+  fetch("/api/export?" + qs.toString())
+    .then(async (r) => {
+      if(!r.ok) {
+        let msg = "HTTP " + r.status;
+        try {
+          const ct = r.headers.get("content-type") || "";
+          if(ct.includes("application/json")) {
+            const j = await r.json();
+            if(j && j.error) msg = j.error;
+          }
+        } catch(e) {}
+        throw new Error(msg);
       }
-
-      // get filename from Content-Disposition if present
-      let filename = "template_filled.xlsx";
-      const cd = resp.headers.get("Content-Disposition") || resp.headers.get("content-disposition");
-      if(cd) {
-        const m = /filename\*?=(?:UTF-8''|")?([^\";]+)/i.exec(cd);
-        if(m && m[1]) {
-          filename = decodeURIComponent(m[1].replace(/"/g,"").trim());
-        }
-      }
-
-      const blob = await resp.blob();
-      const blobUrl = URL.createObjectURL(blob);
-
+      return r.blob();
+    })
+    .then((blob) => {
+      const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = blobUrl;
-      a.download = filename;
+      a.href = url;
+      a.download = (fmt === "xlsx") ? "export.xlsx" : "export.csv";
       document.body.appendChild(a);
       a.click();
       a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url), 2000);
 
-      setTimeout(()=>URL.revokeObjectURL(blobUrl), 15000);
-
-      log(`Template ready: ${filename} (${Math.round(blob.size/1024)} KB)`);
-      if(st) st.innerHTML = `Готово: <b>${filename}</b> (скачивание началось)`;
-      setTimeout(()=>{ if(st) st.textContent = ""; }, 7000);
+      if(st) st.textContent = "Готово. Файл скачивается…";
+      log(`Export ${fmt.toUpperCase()} OK: channels=${codes.length}, range=${new Date(start_ms).toLocaleString()} → ${new Date(end_ms).toLocaleString()}, step=${step}`);
     })
     .catch((e) => {
-      console.error(e);
-      log("Template export error: " + e.message);
-      alert("Ошибка при формировании шаблона. Смотри блок 'Лог'.\n\n" + e.message);
-      if(st) st.textContent = "Ошибка (см. лог)";
-      setTimeout(()=>{ if(st) st.textContent = ""; }, 7000);
+      if(st) st.textContent = "Ошибка: " + (e && e.message ? e.message : e);
+      log("Export " + fmt + " error: " + e);
+      alert("Ошибка экспорта. Смотри блок 'Лог'.\n\n" + (e && e.message ? e.message : e));
     })
     .finally(() => {
-      if(btn) { btn.classList.remove("btnBusy"); btn.textContent = "В шаблон XLSX"; }
+      if(bc) bc.disabled = false;
+      if(bx) bx.disabled = false;
     });
 }
-
-function exportData(fmt) {
+function exportTemplate() {
   if(!LOADED || !SUMMARY) { alert("Сначала загрузите тест"); return; }
-  const codes = getSelectedCodes();
-  if(!codes.length) { alert("Выбери хотя бы один канал"); return; }
 
-  const step = getStep();
+  const codes = getSelectedCodes();
+  if(!codes || !codes.length) {
+    alert("Выбери хотя бы один канал");
+    return;
+  }
+
+  // Интервал: сначала из видимой области графика (zoom/range-slider), иначе из currentRange
   let start_ms = SUMMARY.start_ms;
   let end_ms = SUMMARY.end_ms;
-
-  if(currentRange && currentRange.length === 2) {
+  const vr = getVisibleRangeFromPlot();
+  if(vr && vr.length === 2) {
+    start_ms = Math.min(vr[0], vr[1]);
+    end_ms   = Math.max(vr[0], vr[1]);
+  } else if(currentRange && currentRange.length === 2) {
     start_ms = Math.min(currentRange[0], currentRange[1]);
     end_ms   = Math.max(currentRange[0], currentRange[1]);
   }
 
-  const url = `/api/export?format=${encodeURIComponent(fmt)}&channels=${encodeURIComponent(codes.join(","))}&start_ms=${start_ms}&end_ms=${end_ms}&step=${step}`;
-  log(`Export ${fmt}: ${new Date(start_ms).toISOString()} -> ${new Date(end_ms).toISOString()} | step=${step}`);
-  window.location.href = url;
+  const step = getStep();
+
+  const btn = el("btnTpl");
+  const st  = el("tplStatus");
+  if(btn) { btn.disabled = true; btn.textContent = "Готовлю шаблон…"; }
+  if(st)  { st.innerHTML = `<span class="spinner"></span>Формирую Excel… <span style="opacity:.85">(каналы: ${codes.length}, диапазон: ${new Date(start_ms).toLocaleString()} → ${new Date(end_ms).toLocaleString()})</span>`; }
+
+  const qs = new URLSearchParams();
+  qs.set("start_ms", String(start_ms));
+  qs.set("end_ms", String(end_ms));
+  qs.set("channels", codes.join(","));
+  qs.set("step", String(step));
+
+  fetch("/api/export_template?" + qs.toString())
+    .then(async (r) => {
+      if(!r.ok) {
+        let msg = "HTTP " + r.status;
+        try {
+          const ct = r.headers.get("content-type") || "";
+          if(ct.includes("application/json")) {
+            const j = await r.json();
+            if(j && j.error) msg = j.error;
+          }
+        } catch(e) {}
+        throw new Error(msg);
+      }
+      return r.blob();
+    })
+    .then((blob) => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "template_filled.xlsx";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url), 2000);
+
+      if(st) st.textContent = "Готово. Файл скачивается…";
+      log(`Export TEMPLATE OK: channels=${codes.length}, range=${new Date(start_ms).toLocaleString()} → ${new Date(end_ms).toLocaleString()}, step=${step}`);
+    })
+    .catch((e) => {
+      if(st) st.textContent = "Ошибка: " + (e && e.message ? e.message : e);
+      log("Export TEMPLATE error: " + e);
+      alert("Ошибка при формировании шаблона. Смотри блок 'Лог'.\n\n" + (e && e.message ? e.message : e));
+    })
+    .finally(() => {
+      if(btn) { btn.disabled = false; btn.textContent = "В шаблон XLSX"; }
+    });
 }
+
 
 function scheduleRedraw() {
   if(redrawTimer) clearTimeout(redrawTimer);

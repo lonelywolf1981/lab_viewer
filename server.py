@@ -1,4 +1,24 @@
+
 from __future__ import annotations
+
+def log_exception_to_file(prefix: str, exc: Exception) -> str:
+    """Write traceback to a local file and return that file path."""
+    import traceback as _tb
+    try:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        log_path = os.path.join(base_dir, "export_template_error.log")
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write("\n===== " + prefix + " " + dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S") + " =====\n")
+            f.write(_tb.format_exc())
+            f.write("\n")
+        try:
+            print("[TEMPLATE] ERROR logged to", log_path)
+        except Exception:
+            pass
+        return log_path
+    except Exception:
+        return ""
+
 
 # server.py
 # Локальный веб-просмотрщик LeMuRe (Windows 7 friendly)
@@ -9,8 +29,9 @@ import re
 import json
 import io
 import threading
+import time as time_mod
+import datetime as dt
 import webbrowser
-from datetime import datetime, timedelta, time
 from bisect import bisect_left, bisect_right
 from typing import List, Dict, Any, Tuple
 
@@ -108,8 +129,8 @@ def _summary(data: Dict[str, Any]) -> Dict[str, Any]:
         "points": len(rows),
         "start_ms": t0,
         "end_ms": t1,
-        "start": datetime.fromtimestamp(t0/1000).strftime("%Y-%m-%d %H:%M:%S"),
-        "end": datetime.fromtimestamp(t1/1000).strftime("%Y-%m-%d %H:%M:%S"),
+        "start": dt.datetime.fromtimestamp(t0/1000).strftime("%Y-%m-%d %H:%M:%S"),
+        "end": dt.datetime.fromtimestamp(t1/1000).strftime("%Y-%m-%d %H:%M:%S"),
     }
 
 def _slice_by_time(t_list: List[int], start_ms: int, end_ms: int) -> Tuple[int, int]:
@@ -305,7 +326,7 @@ def api_orders_save():
         "name": name,
         "key": key,
         "order": normalized,
-        "saved_at": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        "saved_at": dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
     }
     try:
         path = _order_path_by_key(key)
@@ -352,7 +373,7 @@ def _export_csv(rows: List[Dict[str, Any]], channels: List[str]) -> bytes:
     writer = csv.writer(out, delimiter=";")
     writer.writerow(["timestamp"] + channels)
     for r in rows:
-        ts = datetime.fromtimestamp(r["t_ms"]/1000).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        ts = dt.datetime.fromtimestamp(r["t_ms"]/1000).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
         writer.writerow([ts] + [r.get(c) if r.get(c) is not None else "" for c in channels])
     return out.getvalue().encode("utf-8-sig")
 
@@ -363,7 +384,7 @@ def _export_xlsx(rows: List[Dict[str, Any]], channels: List[str]) -> bytes:
     ws.title = "data"
     ws.append(["timestamp"] + channels)
     for r in rows:
-        ts = datetime.fromtimestamp(r["t_ms"]/1000).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        ts = dt.datetime.fromtimestamp(r["t_ms"]/1000).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
         ws.append([ts] + [r.get(c) for c in channels])
     bio = io.BytesIO()
     wb.save(bio)
@@ -402,20 +423,14 @@ def api_export():
 
     if fmt == "xlsx":
         payload = _export_xlsx(sliced, ch)
-        return send_file(
-            io.BytesIO(payload),
-            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            as_attachment=True,
-            download_name="export.xlsx",
-        )
+        return _send_file_compat(io.BytesIO(payload),
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "export.xlsx")
     else:
         payload = _export_csv(sliced, ch)
-        return send_file(
-            io.BytesIO(payload),
-            mimetype="text/csv",
-            as_attachment=True,
-            download_name="export.csv",
-        )
+        return _send_file_compat(io.BytesIO(payload),
+            "text/csv",
+            "export.csv")
 
 
 
@@ -459,6 +474,16 @@ def _resolve_channel(cols: List[str], key: str) -> str:
 
 @app.route("/api/export_template", methods=["GET"])
 def api_export_template():
+    try:
+        return _api_export_template_impl()
+    except Exception as e:
+        lp = log_exception_to_file("api_export_template", e)
+        msg = str(e)
+        if lp:
+            msg = msg + f" (подробности в {os.path.basename(lp)})"
+        return jsonify({"ok": False, "error": msg}), 500
+
+def _api_export_template_impl():
     """Заполнить template.xlsx, сохранив форматирование/цвета/формулы.
 
     Правила заполнения (как вы описали):
@@ -521,9 +546,6 @@ def api_export_template():
     # If provided, only those channels will be written to the template.
     ch_arg = (request.args.get("channels") or "").strip()
     selected = set([c.strip() for c in ch_arg.split(",") if c.strip()])
-    # If the browser did not send selected channels, do NOT export everything silently.
-    if not selected:
-        return jsonify({"ok": False, "error": "Не получены выбранные каналы (похоже, браузер использует старый app.js). Нажми Ctrl+F5 и попробуй снова."}), 400
 
     # Debug: log what we received (goes to run log)
     try:
@@ -599,6 +621,8 @@ def api_export_template():
         wb = load_workbook(template_path)
         ws = wb.active
 
+        _t0_export = time_mod.time()
+
         start_row = 4
         pattern_row = start_row
         max_col = ws.max_column
@@ -612,57 +636,102 @@ def api_export_template():
                 formula_cols.add(c)
                 pattern_formulas[c] = v
 
+
+        # Cache styles from the pattern row once (fix: style_cache was not defined)
+        style_cache = {}
+        for c in range(1, max_col + 1):
+            src = ws.cell(row=pattern_row, column=c)
+            style_cache[c] = {
+                "_style": copy(src._style),
+                'number_format': src.number_format,
+                'font': copy(src.font),
+                'border': copy(src.border),
+                'fill': copy(src.fill),
+                'alignment': copy(src.alignment),
+                'protection': copy(src.protection),
+            }
         def ensure_row_with_style(r: int) -> None:
-            # create row cells & copy style from pattern row (for new rows)
+            """Ensure row exists and has styles like pattern_row. Optimized: reuse style objects (no deepcopy)."""
             if r <= ws.max_row:
                 return
+            # create row cells
             for c in range(1, max_col + 1):
                 ws.cell(row=r, column=c)
             try:
                 ws.row_dimensions[r].height = ws.row_dimensions[pattern_row].height
             except Exception:
                 pass
+            # apply cached styles (reuse objects; much faster than copy())
             for c in range(1, max_col + 1):
-                s = ws.cell(row=pattern_row, column=c)
                 d = ws.cell(row=r, column=c)
-                d._style = copy(s._style)
-                d.number_format = s.number_format
-                d.font = copy(s.font)
-                d.border = copy(s.border)
-                d.fill = copy(s.fill)
-                d.alignment = copy(s.alignment)
-                d.protection = copy(s.protection)
+                st = style_cache.get(c)
+                if not st:
+                    src = ws.cell(row=pattern_row, column=c)
+                    st = {
+                        "_style": copy(src._style),
+                        "number_format": src.number_format,
+                        "font": copy(src.font),
+                        "border": copy(src.border),
+                        "fill": copy(src.fill),
+                        "alignment": copy(src.alignment),
+                        "protection": copy(src.protection),
+                    }
+                    style_cache[c] = st
+                d._style = st["_style"]
+                d.number_format = st["number_format"]
+                d.font = st["font"]
+                d.border = st["border"]
+                d.fill = st["fill"]
+                d.alignment = st["alignment"]
+                d.protection = st["protection"]
 
         needed_last_row = start_row + len(idxs) - 1
         for r in range(ws.max_row + 1, needed_last_row + 1):
             ensure_row_with_style(r)
 
         # Prepare rows: keep formulas (translated), clear everything else
+        fill_cols = set([2, 3] + list(range(4, 21)))  # B,C,D..T
+        formula_list = sorted(list(formula_cols))
+        clear_cols = [c for c in range(1, max_col + 1) if c not in fill_cols and c not in formula_cols]
+
         for j in range(len(idxs)):
             r = start_row + j
-            for c in range(1, max_col + 1):
-                cell = ws.cell(row=r, column=c)
-                if c in formula_cols:
-                    src_formula = pattern_formulas.get(c)
-                    if src_formula:
-                        src_addr = f"{get_column_letter(c)}{pattern_row}"
-                        dst_addr = f"{get_column_letter(c)}{r}"
-                        try:
-                            cell.value = Translator(src_formula, origin=src_addr).translate_formula(dst_addr)
-                        except Exception:
-                            cell.value = src_formula
-                else:
-                    cell.value = None
+            # Clear only columns that may contain stale sample values (faster than clearing all 1..max_col)
+            for c in clear_cols:
+                ws.cell(row=r, column=c).value = None
 
-        # Write data
+            # Put formulas back (translated to the new row)
+            for c in formula_list:
+                src_formula = pattern_formulas.get(c)
+                if not src_formula:
+                    continue
+                src_addr = f"{get_column_letter(c)}{pattern_row}"
+                dst_addr = f"{get_column_letter(c)}{r}"
+                try:
+                    ws.cell(row=r, column=c).value = Translator(src_formula, origin=src_addr).translate_formula(dst_addr)
+                except Exception:
+                    ws.cell(row=r, column=c).value = src_formula
+
+
+        
+        # Precompute which template columns we will actually write (only selected channels)
+        writers = []
+        for key, colnum in key_to_col.items():
+            code = key_to_code.get(key) or ""
+            if not code:
+                continue
+            if selected and code not in selected:
+                continue
+            writers.append((code, colnum))
+# Write data
         for j, idx in enumerate(idxs):
             r = start_row + j
             ws.cell(row=r, column=2).value = _dt.timedelta(seconds=j * 20)
 
             if idx >= 0:
                 tms = rows[idx]["t_ms"]
-                dt = datetime.fromtimestamp(tms/1000)
-                ws.cell(row=r, column=3).value = dt.time()
+                dt_obj = dt.datetime.fromtimestamp(tms/1000)
+                ws.cell(row=r, column=3).value = dt_obj.time()
 
                 for key, colnum in key_to_col.items():
                     code = key_to_code.get(key) or ""
@@ -695,7 +764,7 @@ def api_export_template():
         wb.save(bio)
         bio.seek(0)
 
-        fn = f"template_filled_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        fn = f"template_filled_{dt.datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
         return _send_file_compat(
             bio,
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
