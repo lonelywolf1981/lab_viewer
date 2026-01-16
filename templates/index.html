@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"/>
+  <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>LeMuRe Viewer</title>
+  <link rel="stylesheet" href="/static/style.css"/>
+  <!-- Plotly через CDN (если интернет закрыт — скажи, сделаю офлайн-версию с локальным plotly.js) -->
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>LeMuRe Viewer</h1>
+      <div class="sub">Локальный просмотрщик Prova*.dbf. Порт: {{port}}</div>
+    </header>
+
+    <section class="panel">
+      <div class="row">
+        <label>Папка теста:</label>
+        <input id="folder" type="text" placeholder="Например: C:\Tests\...\Test-05" />
+        <button id="btnPick">Обзор…</button>
+        <button id="btnLoad">Загрузить</button>
+      </div>
+
+      <div class="row">
+        <div class="box">
+          <div class="boxTitle">Сводка</div>
+          <div id="summary">Не загружено</div>
+        </div>
+
+        <div class="box">
+          <div class="boxTitle">Каналы</div>
+          <div class="chanToolbar">
+            <button id="btnAll" type="button">Выбрать все</button>
+            <button id="btnNone" type="button">Снять все</button>
+            <span class="sortBox">
+              <label for="sortMode">Сортировка:</label>
+              <select id="sortMode">
+                <option value="file" selected>Как в файле</option>
+                <option value="custom">Мой порядок (сохранённый)</option>
+                <option value="priority">Приоритет + человекоудобно</option>
+                <option value="natural">Человекоудобно по коду</option>
+                <option value="label">По названию</option>
+                <option value="unit">По единицам, затем код</option>
+              </select>
+            </span>
+          </div>
+          <div class="orderToolbar">
+            <input id="orderName" type="text" placeholder="Имя порядка…"/>
+            <button id="btnSaveNamed" type="button">Сохранить</button>
+            <select id="orderSelect" title="Сохранённые порядки"></select>
+            <button id="btnLoadNamed" type="button">Загрузить</button>
+            <button id="btnRefreshOrders" type="button">Обновить</button>
+          </div>
+          <ul id="channelList" class="chanList" tabindex="0"></ul>
+          <div class="hint">Выбор как в Windows: клик — выбрать, Ctrl+клик — добавить/убрать, Shift+клик — диапазон. Двойной клик — оставить только этот канал.</div>
+        </div>
+
+        <div class="box">
+          <div class="boxTitle">Диапазон / Экспорт</div>
+
+          <div class="row2">
+            <label>Шаг (каждый N-й замер):</label>
+            <input id="step" type="number" min="1" value="1" style="width:80px"/>
+          </div>
+
+          <div class="row2">
+            <button id="btnDraw">Построить график</button>
+          </div>
+
+          <div class="row2">
+            <button id="btnCsv">Экспорт CSV</button>
+            <button id="btnXlsx">Экспорт Excel</button>
+            <button id="btnTpl">В шаблон XLSX</button>
+          </div>
+
+          <div class="row2">
+            <div><b>Выбранный интервал:</b> <span id="rangeText">—</span></div>
+          </div>
+
+          <div class="hint">
+            Интервал экспорта берётся из видимой области графика по оси X.
+            Увеличь/уменьши масштаб (выделением мышью или колесом). Текущий интервал покажу справа. Также можно двигать range-slider снизу.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="plotPanel">
+      <div class="plotTitle">График</div>
+      <div class="plotSub">Подсказка: двойной клик по легенде — оставить только одну линию. Один клик — скрыть/показать линию.</div>
+      <div id="plot" class="plot"></div>
+    </section>
+
+    <section class="logPanel">
+      <div class="boxTitle">Лог</div>
+      <pre id="log"></pre>
+    </section>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
