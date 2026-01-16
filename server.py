@@ -543,8 +543,10 @@ def _api_export_template_impl():
         else:
             idxs.append(idx)
 
-    # Respect selected channels (optional query param "channels" like other exports)
-    # If provided, only those channels will be written to the template.
+    # Selected channels (optional query param "channels") are used ONLY as a *preference*
+    # when resolving ambiguous keys (A-*/C-* variants). We intentionally DO NOT filter
+    # the template output by the current selection, because the template expects a fixed
+    # set of base columns (incl. column T that drives the yellow highlight).
     ch_arg = (request.args.get("channels") or "").strip()
     selected = set([c.strip() for c in ch_arg.split(",") if c.strip()])
 
@@ -573,11 +575,11 @@ def _api_export_template_impl():
             return ""
 
         if selected:
+            # If any of the matching channels is selected, prefer it.
             for c in matches:
                 if c in selected:
                     return c
-            # Selection is provided but none of the matching channels were selected
-            return ""
+            # Otherwise fall back to the default preference (do NOT blank the column).
 
         # Prefer A- then C- then the first remaining
         for pref in ("A-", "C-"):
@@ -612,11 +614,9 @@ def _api_export_template_impl():
     # Sorting is "human-friendly": 1, 2, 3 ... (natural sort) by sensor name.
     fixed_codes = set([v for v in key_to_code.values() if v])
 
-    if selected:
-        # Keep original file order before sorting
-        candidate_codes = [c for c in cols if c in selected]
-    else:
-        candidate_codes = list(cols)
+    # For the template we always include *all* channels (extras start from column Z).
+    # Selection (if any) should not hide channels in the template.
+    candidate_codes = list(cols)
 
     extra_codes = [c for c in candidate_codes if c and c not in fixed_codes]
 
@@ -817,9 +817,8 @@ def _api_export_template_impl():
                     code = key_to_code.get(key) or ""
                     if not code:
                         continue
-                    if selected and code not in selected:
-                        # Only write selected channels
-                        continue
+                    # Do not filter template output by selection. Selection is only a
+                    # preference for resolving ambiguous A-*/C-* codes.
                     v = rows[idx].get(code)
                     if v is None:
                         ws.cell(row=r, column=colnum).value = None
@@ -855,6 +854,69 @@ def _api_export_template_impl():
                 if c in formula_cols:
                     continue
                 ws.cell(row=r, column=c).value = None
+
+
+        # ---------------- Conditional formatting (beauty rules) ----------------
+        # 1) Если в колонке T (на этой же строке) значение < 150,
+        #    то закрасить диапазон B..P этой строки жёлтым.
+        # 2) Для колонок W/X/Y применить независимую (от других ячеек) шкалу цветов:
+        #    ниже порога -> синее, на пороге -> зелёное, выше -> краснее.
+        #    (Важный момент: start/end заданы фиксированными числами, а не min/max диапазона.)
+        try:
+            from openpyxl.styles import PatternFill
+            from openpyxl.formatting.rule import FormulaRule, ColorScaleRule
+
+            first_r = start_row
+            last_r = start_row + len(idxs) - 1
+
+            if last_r >= first_r:
+                # Yellow row (B..P) if T < 150
+                # Use ARGB (FF......) and set both start/end colors for best Excel compatibility.
+                yellow_fill = PatternFill(fill_type="solid", start_color="FFFFFF00", end_color="FFFFFF00")
+                rng_yellow = f"B{first_r}:P{last_r}"
+                # Lock column T, keep row relative
+                # stopIfTrue=True makes this rule override any lower-priority rules that
+                # could exist in the template for the same cells.
+                rule_yellow = FormulaRule(formula=[f"$T{first_r}<150"], fill=yellow_fill, stopIfTrue=True)
+                ws.conditional_formatting.add(rng_yellow, rule_yellow)
+
+                # Color scales for W, X, Y (blue -> green(threshold) -> red)
+                # IMPORTANT: make them independent from other cells by using fixed numeric bounds.
+                # You can adjust MAX_* if you want a different saturation point.
+                MAX_W = 2   # for column W: center at 1
+                MAX_X = 18  # for column X: center at 9
+                MAX_Y = 10  # for column Y: center at 5
+
+                ws.conditional_formatting.add(
+                    f"W{first_r}:W{last_r}",
+                    ColorScaleRule(
+                        start_type="num", start_value=0, start_color="0000FF",
+                        mid_type="num", mid_value=1, mid_color="00FF00",
+                        end_type="num", end_value=MAX_W, end_color="FF0000",
+                    ),
+                )
+                ws.conditional_formatting.add(
+                    f"X{first_r}:X{last_r}",
+                    ColorScaleRule(
+                        start_type="num", start_value=0, start_color="0000FF",
+                        mid_type="num", mid_value=9, mid_color="00FF00",
+                        end_type="num", end_value=MAX_X, end_color="FF0000",
+                    ),
+                )
+                ws.conditional_formatting.add(
+                    f"Y{first_r}:Y{last_r}",
+                    ColorScaleRule(
+                        start_type="num", start_value=0, start_color="0000FF",
+                        mid_type="num", mid_value=5, mid_color="00FF00",
+                        end_type="num", end_value=MAX_Y, end_color="FF0000",
+                    ),
+                )
+
+        except Exception as _cf_e:
+            try:
+                print("[TEMPLATE] conditional formatting skipped:", _cf_e)
+            except Exception:
+                pass
 
         bio = io.BytesIO()
         wb.save(bio)
