@@ -49,6 +49,11 @@ def _send_file_compat(fp, mimetype: str, filename: str):
 
 
 from lemure_reader import load_test, ChannelInfo
+from functools import lru_cache
+from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
+
+executor = ThreadPoolExecutor(max_workers=2)
 
 APP_HOST = "127.0.0.1"
 APP_PORT = 8787
@@ -302,6 +307,32 @@ def save_order(order: List[str]) -> None:
         # do not crash server
         pass
 
+
+class ChannelResolver:
+    """Fast O(1) channel lookup."""
+
+    def __init__(self, cols: List[str]):
+        self.cols = set(cols)
+        self.by_suffix: Dict[str, List[str]] = {}
+        for col in cols:
+            if '-' in col:
+                suffix = col.split('-', 1)[1]
+                self.by_suffix.setdefault(suffix, []).append(col)
+
+    def resolve(self, key: str, prefer: List[str] = None) -> str:
+        if key in self.cols:
+            return key
+        candidates = self.by_suffix.get(key, [])
+        if not candidates:
+            return ""
+        prefer = prefer or ["A-", "C-"]
+        for prefix in prefer:
+            for c in candidates:
+                if c.startswith(prefix):
+                    return c
+        return candidates[0]
+
+
 def _build_state(folder: str) -> Dict[str, Any]:
     data = load_test(folder)
     t_list = [r["t_ms"] for r in data["rows"]]
@@ -380,10 +411,23 @@ def pick_folder():
     except Exception as e:
         return jsonify({"ok": False, "error": str(e), "folder": ""})
 
+
+def validate_folder_path(folder: str) -> bool:
+    try:
+        real_path = Path(folder).resolve()
+        return real_path.exists() and real_path.is_dir()
+    except Exception:
+        return False
+
+
 @app.route("/api/load", methods=["POST"])
 def api_load():
     body = request.get_json(force=True, silent=True) or {}
     folder = (body.get("folder") or "").strip()
+
+    if not validate_folder_path(folder):
+        return jsonify({"ok": False, "error": "Недопустимый путь"})
+
     if not folder:
         return jsonify({"ok": False, "error": "Путь к папке пустой"})
 
@@ -416,6 +460,22 @@ def api_load():
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
 
+
+@lru_cache(maxsize=32)
+def _cached_series_slice(data_id: int, channels_key: str, start_ms: int, end_ms: int, step_i: int):
+    rows = STATE["data"]["rows"]
+    t_list = STATE["t_list"]
+    channels = [c.strip() for c in channels_key.split(",") if c.strip()]
+    i0, i1 = _slice_by_time(t_list, start_ms, end_ms)
+    sliced = rows[i0:i1:step_i]
+    t = [r["t_ms"] for r in sliced]
+    series = {}
+    for code in channels:
+        vals = [float(r.get(code)) if r.get(code) is not None else None for r in sliced]
+        series[code] = vals
+    return t, series
+
+
 @app.route("/api/series", methods=["GET"])
 def api_series():
     if not STATE.get("loaded"):
@@ -442,25 +502,39 @@ def api_series():
     except Exception:
         step_i = 1
 
-    i0, i1 = _slice_by_time(t_list, start_ms, end_ms)
-    sliced = rows[i0:i1:step_i]
-    t = [r["t_ms"] for r in sliced]
-
-    series = {}
-    for code in ch:
-        vals = []
-        for r in sliced:
-            v = r.get(code)
-            if v is None:
-                vals.append(None)
-            else:
-                try:
-                    vals.append(float(v))
-                except Exception:
-                    vals.append(None)
-        series[code] = vals
-
-    return jsonify({"ok": True, "t_ms": t, "series": series})
+    # i0, i1 = _slice_by_time(t_list, start_ms, end_ms)
+    # sliced = rows[i0:i1:step_i]
+    # t = [r["t_ms"] for r in sliced]
+    #
+    # series = {}
+    # for code in ch:
+    #     vals = []
+    #     for r in sliced:
+    #         v = r.get(code)
+    #         if v is None:
+    #             vals.append(None)
+    #         else:
+    #             try:
+    #                 vals.append(float(v))
+    #             except Exception:
+    #                 vals.append(None)
+    #     series[code] = vals
+    #
+    # return jsonify({"ok": True, "t_ms": t, "series": series})
+    # ВСТАВИТЬ НОВЫЙ КОД ⬇️
+    channels_key = ",".join(ch)
+    try:
+        t_ms, series = _cached_series_slice(
+            id(rows),  # Используется для инвалидации кэша при перезагрузке
+            channels_key,  # Список каналов как строка
+            start_ms,
+            end_ms,
+            step_i
+        )
+        return jsonify({"ok": True, "t_ms": t_ms, "series": series})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+    # ДО СЮДА ⬆️
 
 
 @app.route("/api/save_order", methods=["POST"])
@@ -818,8 +892,9 @@ def _api_export_template_impl():
         "V": 19,
         "W": 20,
     }
-    key_to_code = {k: resolve_for_selection(k) for k in key_to_col.keys()}
-
+    # key_to_code = {k: resolve_for_selection(k) for k in key_to_col.keys()}
+    resolver = ChannelResolver(cols)
+    key_to_code = {k: resolver.resolve(k) for k in key_to_col.keys()}
     # Extra sensors (not mapped to D..T): write them starting from column Z.
     # Sorting is "human-friendly": 1, 2, 3 ... (natural sort) by sensor name.
     fixed_codes = set([v for v in key_to_code.values() if v])
@@ -1188,4 +1263,5 @@ if __name__ == "__main__":
     threading.Timer(0.8, _open_browser).start()
     _ensure_orders_dir()
     # threaded=False — чтобы tkinter "Обзор..." работал предсказуемо
-    app.run(host=APP_HOST, port=APP_PORT, debug=False, threaded=False)
+    # app.run(host=APP_HOST, port=APP_PORT, debug=False, threaded=False)
+    app.run(host=APP_HOST, port=APP_PORT, debug=False, threaded=True, use_reloader=False)

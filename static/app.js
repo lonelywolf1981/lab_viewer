@@ -412,6 +412,9 @@ function scheduleSaveOrder() {
   if(saveOrderTimer) clearTimeout(saveOrderTimer);
   saveOrderTimer = setTimeout(() => {
     const order = currentOrderCodes();
+    const prevOrder = SAVED_ORDER.join(',');
+    const newOrder = order.join(',');
+    if(prevOrder === newOrder) return;
     fetch("/api/save_order", {
       method:"POST",
       headers: {"Content-Type":"application/json"},

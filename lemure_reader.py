@@ -140,35 +140,60 @@ def _parse_dbf_value(raw: bytes, f: DbfField):
     return s if s != "" else None
 
 
+# def read_dbf_rows(dbf_path: str) -> Tuple[DbfHeader, List[Dict[str, Any]]]:
+#     with open(dbf_path, "rb") as f:
+#         buf = f.read()
+#
+#     hdr = _read_dbf_header(buf)
+#     fields = hdr.fields
+#
+#     start = hdr.header_len
+#     rec_len = hdr.record_len
+#
+#     rows: List[Dict[str, Any]] = []
+#     pos = start
+#     for _ in range(hdr.records):
+#         rec = buf[pos:pos + rec_len]
+#         pos += rec_len
+#         if not rec or len(rec) < rec_len:
+#             break
+#         if rec[0:1] == b"*":
+#             continue
+#         off = 1
+#         row: Dict[str, Any] = {}
+#         for fdef in fields:
+#             raw = rec[off:off + fdef.length]
+#             off += fdef.length
+#             row[fdef.name] = _parse_dbf_value(raw, fdef)
+#         rows.append(row)
+#
+#     return hdr, rows
 def read_dbf_rows(dbf_path: str) -> Tuple[DbfHeader, List[Dict[str, Any]]]:
+    """Memory-efficient streaming DBF reader."""
     with open(dbf_path, "rb") as f:
-        buf = f.read()
+        header_buf = f.read(8192)
+        hdr = _read_dbf_header(header_buf)
+        f.seek(hdr.header_len)
 
-    hdr = _read_dbf_header(buf)
-    fields = hdr.fields
+        rows: List[Dict[str, Any]] = []
+        rec_len = hdr.record_len
 
-    start = hdr.header_len
-    rec_len = hdr.record_len
+        for _ in range(hdr.records):
+            rec = f.read(rec_len)
+            if not rec or len(rec) < rec_len:
+                break
+            if rec[0:1] == b"*":
+                continue
 
-    rows: List[Dict[str, Any]] = []
-    pos = start
-    for _ in range(hdr.records):
-        rec = buf[pos:pos + rec_len]
-        pos += rec_len
-        if not rec or len(rec) < rec_len:
-            break
-        if rec[0:1] == b"*":
-            continue
-        off = 1
-        row: Dict[str, Any] = {}
-        for fdef in fields:
-            raw = rec[off:off + fdef.length]
-            off += fdef.length
-            row[fdef.name] = _parse_dbf_value(raw, fdef)
-        rows.append(row)
+            off = 1
+            row: Dict[str, Any] = {}
+            for fdef in hdr.fields:
+                raw = rec[off:off + fdef.length]
+                off += fdef.length
+                row[fdef.name] = _parse_dbf_value(raw, fdef)
+            rows.append(row)
 
     return hdr, rows
-
 
 # ------------- Test loader -------------
 
