@@ -28,7 +28,7 @@ function getVisibleRangeFromPlot() {
     if (rng && rng.length === 2) {
       const a = parsePlotlyDate(rng[0]);
       const b = parsePlotlyDate(rng[1]);
-      if (!Number.isNaN(a) && !Number.isNaN(b)) return [a, b];
+      if (!Number.isNaN(a) && !Number.isNaN(b)) return [plotXToMs(a), plotXToMs(b)];
     }
   } catch (e) {}
   return null;
@@ -40,15 +40,27 @@ function parseRelayoutRange(ev) {
     if (ev["xaxis.range"] && Array.isArray(ev["xaxis.range"])) {
       const a = parsePlotlyDate(ev["xaxis.range"][0]);
       const b = parsePlotlyDate(ev["xaxis.range"][1]);
-      if (!Number.isNaN(a) && !Number.isNaN(b)) return [a, b];
+      if (!Number.isNaN(a) && !Number.isNaN(b)) return [plotXToMs(a), plotXToMs(b)];
     }
     if (ev["xaxis.range[0]"] != null && ev["xaxis.range[1]"] != null) {
       const a = parsePlotlyDate(ev["xaxis.range[0]"]);
       const b = parsePlotlyDate(ev["xaxis.range[1]"]);
-      if (!Number.isNaN(a) && !Number.isNaN(b)) return [a, b];
+      if (!Number.isNaN(a) && !Number.isNaN(b)) return [plotXToMs(a), plotXToMs(b)];
     }
   } catch (e) {}
   return null;
+}
+
+
+// Plotly рисует ось времени в UTC. Чтобы на графике было локальное время (как в данных/сводке),
+// сдвигаем X на локальный offset. При чтении диапазона с графика делаем обратное преобразование.
+function msToPlotX(ms) {
+  const offMin = new Date(ms).getTimezoneOffset(); // minutes (UTC - local)
+  return ms - offMin * 60000;
+}
+function plotXToMs(plotMs) {
+  const offMin = new Date(plotMs).getTimezoneOffset();
+  return plotMs + offMin * 60000;
 }
 // LeMuRe Viewer UI (selection like <select multiple> + drag reorder + export by visible X range)
 let LOADED = false;
@@ -412,9 +424,6 @@ function scheduleSaveOrder() {
   if(saveOrderTimer) clearTimeout(saveOrderTimer);
   saveOrderTimer = setTimeout(() => {
     const order = currentOrderCodes();
-    const prevOrder = SAVED_ORDER.join(',');
-    const newOrder = order.join(',');
-    if(prevOrder === newOrder) return;
     fetch("/api/save_order", {
       method:"POST",
       headers: {"Content-Type":"application/json"},
@@ -591,7 +600,9 @@ function drawPlot() {
 
   const step = getStep();
 
-  // Запоминаем текущий видимый диапазон ДО перерисовки, чтобы он не сбрасывался при смене датчиков
+  // Запоминаем текущий видимый диапазон ДО перерисовки, чтобы он не сбрасывался при смене датчиков.
+  // Важно: НЕ переводим в ISO-строки (toISOString), иначе на некоторых ПК появляется смещение по времени/оси.
+  // Держим диапазон как [ms, ms] и (если нужно) отдаём Plotly как Date-объекты.
   let desiredRange = null;
   const vrBefore = getVisibleRangeFromPlot();
   if(vrBefore && vrBefore.length === 2) {
@@ -607,7 +618,9 @@ function drawPlot() {
     .then(r=>r.json())
     .then(j=>{
       if(!j.ok) { alert("Ошибка: " + j.error); log("series error: " + j.error); return; }
-      const t = (j.t_ms || []).map(x => new Date(x));
+      // IMPORTANT: use local strings instead of Date objects to avoid a fixed timezone offset
+      // on some machines/browsers when Plotly formats dates.
+      const t = (j.t_ms || []).map((ms) => new Date(msToPlotX(ms)));
       const series = j.series || {};
       const traces = [];
 
@@ -625,7 +638,9 @@ function drawPlot() {
 
       const layout = {
         // Важно: uirevision + Plotly.react сохраняют zoom/диапазон при обновлении данных
-        uirevision: "lemure-v14",
+        // Привяжем uirevision к конкретному тесту (чтобы при загрузке нового теста zoom сбрасывался,
+        // а при смене датчиков внутри одного теста — сохранялся).
+        uirevision: `lemure-${SUMMARY.start_ms}-${SUMMARY.end_ms}`,
         margin: {l: 70, r: 20, t: 140, b: 90},
         hovermode: "x unified",
         xaxis: {
@@ -634,7 +649,13 @@ function drawPlot() {
           showspikes: true,
           spikemode: "across",
           spikesnap: "cursor",
-          rangeslider: {visible: true},
+          // Всегда фиксируем общий диапазон range-slider на весь тест,
+          // чтобы при сохранённом zoom он не "прыгал" и визуально не уезжал.
+          rangeslider: {
+            visible: true,
+            autorange: false,
+            range: [new Date(msToPlotX(start_ms)), new Date(msToPlotX(end_ms))],
+          },
         },
         yaxis: {automargin: true},
         legend: {
@@ -650,6 +671,15 @@ function drawPlot() {
           itemdoubleclick: "toggleothers",
         },
       };
+
+      // Если до перерисовки пользователь уже выбрал диапазон (zoom/range-slider),
+      // задаём его прямо в layout (без Plotly.relayout), так Plotly не делает
+      // дополнительных пересчётов, из-за которых у некоторых ПК/локалей график
+      // визуально "уезжал" вправо.
+      if(desiredRange && desiredRange.length === 2) {
+        layout.xaxis.autorange = false;
+        layout.xaxis.range = [new Date(msToPlotX(desiredRange[0])) , new Date(msToPlotX(desiredRange[1]))];
+      }
 
       const config = {
         responsive: true,
@@ -679,13 +709,12 @@ function drawPlot() {
           }
         });
 
-        // Восстановить диапазон (если был выбран) после обновления датчиков
-        if(desiredRange && desiredRange.length === 2) {
-          const r0 = new Date(desiredRange[0]).toISOString();
-          const r1 = new Date(desiredRange[1]).toISOString();
-          try {
-            Plotly.relayout(plotDiv, {"xaxis.range": [r0, r1]});
-          } catch(_) {}
+        // Если нужно удержать диапазон, делаем это без relayout() (он иногда вызывает визуальный "уезд" вправо).
+        // Достаточно задать range прямо в layout до Plotly.react. Если uirevision работает — Plotly сам сохранит.
+        const vrAfter = getVisibleRangeFromPlot();
+        if(vrAfter && vrAfter.length === 2) {
+          currentRange = [Math.min(vrAfter[0], vrAfter[1]), Math.max(vrAfter[0], vrAfter[1])];
+        } else if(desiredRange && desiredRange.length === 2) {
           currentRange = desiredRange.slice();
         } else if(!currentRange) {
           currentRange = [SUMMARY.start_ms, SUMMARY.end_ms];
@@ -693,7 +722,7 @@ function drawPlot() {
         updateRangeText();
       });
 
-      // Текст диапазона обновим сразу (для экспорта), даже если relayout применится чуть позже
+      // Текст диапазона обновим сразу (для экспорта)
       if(desiredRange && desiredRange.length === 2) currentRange = desiredRange.slice();
       if(!currentRange) currentRange = [SUMMARY.start_ms, SUMMARY.end_ms];
       updateRangeText();
