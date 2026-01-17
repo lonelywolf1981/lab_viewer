@@ -67,6 +67,7 @@ let LOADED = false;
 
 let CHANNELS_FILE = [];       // channels in the order they appear in file
 let CHANNELS_VIEW = [];       // currently shown order in list
+let CHANNELS_VIEW_ALL = [];   // full order (sorted) ignoring filters; used for plotting/export order
 let SAVED_ORDER = [];         // saved custom order (from channel_order.json) - not auto-applied
 let SUMMARY = null;
 let currentRange = null;      // [start_ms, end_ms]
@@ -91,6 +92,169 @@ const log = (msg) => {
 window.addEventListener("error", (e) => {
   log("JS error: " + (e && e.message ? e.message : e));
 });
+
+
+// ===== UX/UI helpers (busy overlay, toasts, filters, auto-step) =====
+let BUSY_GUARD = 0;
+let _busyTimer = null;
+
+function _setOverlayVisible(vis, text) {
+  const ov = el('busyOverlay');
+  const tx = el('busyText');
+  if(!ov) return;
+  if(tx && text) tx.textContent = text;
+  ov.classList.toggle('hidden', !vis);
+  ov.setAttribute('aria-hidden', vis ? 'false' : 'true');
+}
+
+function beginBusy(text) {
+  BUSY_GUARD++;
+  const my = BUSY_GUARD;
+  let shown = false;
+  if(_busyTimer) clearTimeout(_busyTimer);
+  _busyTimer = setTimeout(() => {
+    if(my !== BUSY_GUARD) return;
+    _setOverlayVisible(true, text || 'Работаю…');
+    shown = true;
+  }, 250);
+  return () => {
+    if(my !== BUSY_GUARD) return;
+    if(_busyTimer) clearTimeout(_busyTimer);
+    if(shown) _setOverlayVisible(false, '');
+  };
+}
+
+function toast(title, body, kind='info', ms=3500) {
+  const c = el('toastContainer');
+  if(!c) { log((title||'') + ' ' + (body||'')); return; }
+  const t = document.createElement('div');
+  t.className = 'toast ' + kind;
+  const tt = document.createElement('div');
+  tt.className = 'tTitle';
+  tt.textContent = title || '';
+  const tb = document.createElement('div');
+  tb.className = 'tBody';
+  tb.textContent = body || '';
+  if(title) t.appendChild(tt);
+  if(body) t.appendChild(tb);
+  c.appendChild(t);
+  setTimeout(() => {
+    try { t.remove(); } catch(_) {}
+  }, ms);
+}
+
+// Filters state
+let FILTER_TEXT = '';
+let FILTER_ONLY_SELECTED = false;
+let FILTER_CHIP = null; // {type:'prefix'|'unit', value:string}
+
+function hasActiveFilter() {
+  return !!(FILTER_TEXT || FILTER_ONLY_SELECTED || FILTER_CHIP);
+}
+
+function applyChannelFilters(arr) {
+  let out = arr.slice();
+  if(FILTER_CHIP) {
+    const t = FILTER_CHIP.type;
+    const v = (FILTER_CHIP.value || '').toLowerCase();
+    if(t === 'prefix') out = out.filter(ch => (ch.code || '').toLowerCase().startsWith(v));
+    if(t === 'unit') out = out.filter(ch => ((ch.unit || '').toLowerCase() == v));
+  }
+  if(FILTER_TEXT) {
+    const q = FILTER_TEXT.toLowerCase();
+    out = out.filter(ch => {
+      const hay = ((ch.code||'') + ' ' + (ch.label||'') + ' ' + (ch.unit||'')).toLowerCase();
+      return hay.includes(q);
+    });
+  }
+  if(FILTER_ONLY_SELECTED) {
+    out = out.filter(ch => selected.has(ch.code));
+  }
+  return out;
+}
+
+function updateSelectedCountUI() {
+  const sp = el('selCount');
+  if(!sp) return;
+  const total = selected ? selected.size : 0;
+  // visible list = CHANNELS_VIEW
+  const vis = (CHANNELS_VIEW || []).filter(ch => selected.has(ch.code)).length;
+  sp.textContent = `Выбрано: ${total}` + (hasActiveFilter() ? ` (видно: ${vis})` : '');
+}
+
+function clearFilters() {
+  FILTER_TEXT = '';
+  FILTER_ONLY_SELECTED = false;
+  FILTER_CHIP = null;
+  const si = el('chanSearch');
+  if(si) si.value = '';
+  const cb = el('onlySelected');
+  if(cb) cb.checked = false;
+  document.querySelectorAll('.chip.active').forEach(b => b.classList.remove('active'));
+  applySortAndRender(true, false);
+}
+
+// Auto-step helpers
+function getStepTarget() {
+  const sel = el('stepTarget');
+  const v = sel ? parseInt(sel.value || '5000', 10) : 5000;
+  return (isFinite(v) && v > 0) ? v : 5000;
+}
+
+function computeAutoStep() {
+  if(!SUMMARY || !SUMMARY.points) return 1;
+  const target = getStepTarget();
+  // Стараемся подобрать шаг под текущий диапазон (если график уже зумирован).
+  let r = null;
+  const vr = getVisibleRangeFromPlot();
+  if(vr && vr.length === 2) r = [Math.min(vr[0], vr[1]), Math.max(vr[0], vr[1])];
+  else if(currentRange && currentRange.length === 2) r = [Math.min(currentRange[0], currentRange[1]), Math.max(currentRange[0], currentRange[1])];
+  else r = [SUMMARY.start_ms, SUMMARY.end_ms];
+
+  const totalDur = Math.max(1, (SUMMARY.end_ms - SUMMARY.start_ms));
+  const rangeDur = Math.max(1, (r[1] - r[0]));
+  // Оценка числа точек в диапазоне (пропорцией по времени). Это приближение, но для авто-шага хватает.
+  const estPoints = Math.max(1, Math.round(SUMMARY.points * (rangeDur / totalDur)));
+  const step = Math.ceil(estPoints / target);
+  return Math.max(1, step);
+}
+
+function updateStepUI() {
+  const cb = el('stepAuto');
+  const inp = el('step');
+  const info = el('stepAutoInfo');
+  if(!cb || !inp) return;
+  const auto = cb.checked;
+  inp.disabled = auto;
+  if(info) {
+    if(!auto) {
+      info.textContent = '';
+    } else {
+      const st = computeAutoStep();
+      // приблизительно сколько точек останется после прореживания
+      let estAfter = '';
+      if(SUMMARY && SUMMARY.points) {
+        let r = null;
+        const vr = getVisibleRangeFromPlot();
+        if(vr && vr.length === 2) r = [Math.min(vr[0], vr[1]), Math.max(vr[0], vr[1])];
+        else if(currentRange && currentRange.length === 2) r = [Math.min(currentRange[0], currentRange[1]), Math.max(currentRange[0], currentRange[1])];
+        else r = [SUMMARY.start_ms, SUMMARY.end_ms];
+        const totalDur = Math.max(1, (SUMMARY.end_ms - SUMMARY.start_ms));
+        const rangeDur = Math.max(1, (r[1] - r[0]));
+        const estPoints = Math.max(1, Math.round(SUMMARY.points * (rangeDur / totalDur)));
+        const estLeft = Math.max(1, Math.ceil(estPoints / st));
+        estAfter = `, ~${estLeft} точек`;
+      }
+      info.textContent = `(шаг: ${st}${estAfter})`;
+    }
+  }
+}
+
+function getShowLegend() {
+  const cb = el('showLegend');
+  return cb ? !!cb.checked : true;
+}
+
 
 // Priority order (used only when sort mode = "priority")
 const PRIORITY = [
@@ -233,8 +397,12 @@ function currentOrderCodes() {
 }
 
 function getSelectedCodes() {
-  // preserve visual order (top-to-bottom)
-  const order = currentOrderCodes();
+  // Preserve order for plotting/export.
+  // Important: фильтры списка каналов не должны "выкидывать" выбранные каналы из графика.
+  // Поэтому порядок берём из полного (отсортированного) списка, а не из видимого DOM.
+  const order = (CHANNELS_VIEW_ALL && CHANNELS_VIEW_ALL.length)
+    ? CHANNELS_VIEW_ALL.map(c => c.code)
+    : currentOrderCodes();
   return order.filter(code => selected.has(code));
 }
 
@@ -252,6 +420,7 @@ function refreshSelectionUI() {
     else li.classList.remove("selected");
     li.setAttribute("aria-selected", selected.has(code) ? "true" : "false");
   });
+  updateSelectedCountUI();
 }
 
 function selectAll() {
@@ -312,11 +481,13 @@ function onItemDblClick(ev, code) {
   drawPlot(); // immediate
 }
 
-function renderChannelList(arr, keepSelection=true) {
+function renderChannelList(arr, keepSelection=true, pruneSelection=true) {
   const list = el("channelList");
   list.innerHTML = "";
   list.setAttribute("role", "listbox");
   list.setAttribute("aria-multiselectable", "true");
+
+  const canDrag = !hasActiveFilter();
 
   // Keep selection intersection
   const prev = new Set(selected);
@@ -334,8 +505,14 @@ function renderChannelList(arr, keepSelection=true) {
     const handle = document.createElement("div");
     handle.className = "dragHandle";
     handle.textContent = "≡";
-    handle.title = "Перетащить";
-    handle.setAttribute("draggable", "true");
+    if(canDrag) {
+      handle.title = "Перетащить";
+      handle.setAttribute("draggable", "true");
+    } else {
+      handle.title = "Перетаскивание недоступно при включённых фильтрах";
+      handle.setAttribute("draggable", "false");
+      handle.classList.add("dragDisabled");
+    }
     // prevent selection clicks on handle
     handle.addEventListener("click", (ev) => ev.stopPropagation());
     handle.addEventListener("dblclick", (ev) => ev.stopPropagation());
@@ -357,6 +534,11 @@ function renderChannelList(arr, keepSelection=true) {
 
     // Drag start/end on handle
     handle.addEventListener("dragstart", (ev) => {
+      if(!canDrag) {
+        ev.preventDefault();
+        toast('Перетаскивание отключено', 'Снимите фильтры (поиск/чипы/только выбранные) и попробуйте снова', 'warn', 5000);
+        return;
+      }
       li.classList.add("dragging");
       ev.dataTransfer.setData("text/plain", ch.code);
       ev.dataTransfer.effectAllowed = "move";
@@ -387,11 +569,15 @@ function renderChannelList(arr, keepSelection=true) {
     list.appendChild(li);
   });
 
-  // Restore selection
+  // Restore selection (optionally prune to visible list)
   if(keepSelection && prev.size) {
-    const available = new Set(arr.map(c => c.code));
-    const inter = Array.from(prev).filter(c => available.has(c));
-    if(inter.length) selected = new Set(inter);
+    if(pruneSelection) {
+      const available = new Set(arr.map(c => c.code));
+      const inter = Array.from(prev).filter(c => available.has(c));
+      if(inter.length) selected = new Set(inter);
+    } else {
+      selected = new Set(prev);
+    }
   }
 
   // If nothing selected, select first few temps
@@ -474,12 +660,12 @@ function refreshNamedOrders(selectKey=null) {
 
 function saveNamedOrder() {
   if(!CHANNELS_FILE || CHANNELS_FILE.length === 0) {
-    alert('Сначала загрузите тест, чтобы были каналы.');
+    toast('Нет данных', 'Сначала загрузите тест, чтобы были каналы', 'warn');
     return;
   }
   const name = (el('orderName') ? el('orderName').value : '').trim();
   if(!name) {
-    alert('Введите имя порядка.');
+    toast('Имя не указано', 'Введите имя порядка', 'warn');
     return;
   }
   const order = currentOrderCodes();
@@ -490,7 +676,8 @@ function saveNamedOrder() {
   })
   .then(r=>r.json())
   .then(j=>{
-    if(!j.ok) { alert('Ошибка сохранения: ' + (j.error||'')); log('orders_save error: ' + (j.error||'')); return; }
+    if(!j.ok) { toast('Ошибка сохранения', j.error || 'Не удалось сохранить', 'err', 6000); log('orders_save error: ' + (j.error||'')); return; }
+    toast('Порядок сохранён', `"${name}"`, 'ok');
     log(`Named order saved: "${name}" (key=${j.key}, items=${j.saved})`);
     refreshNamedOrders(j.key);
     // also update "custom" saved order to the current list order
@@ -503,27 +690,28 @@ function saveNamedOrder() {
       body: JSON.stringify({order})
     }).catch(()=>{});
   })
-  .catch(e=>{ alert('Ошибка сохранения: ' + e); log('orders_save error: ' + e); });
+  .catch(e=>{ toast('Ошибка сохранения', (e && e.message) ? e.message : String(e), 'err', 6000); log('orders_save error: ' + e); });
 }
 
 function loadNamedOrder() {
   if(!CHANNELS_FILE || CHANNELS_FILE.length === 0) {
-    alert('Сначала загрузите тест, чтобы были каналы.');
+    toast('Нет данных', 'Сначала загрузите тест, чтобы были каналы', 'warn');
     return;
   }
   const key = el('orderSelect') ? el('orderSelect').value : '';
   if(!key) {
-    alert('Выберите сохранённый порядок из списка.');
+    toast('Не выбран порядок', 'Выберите сохранённый порядок из списка', 'warn');
     return;
   }
   fetch('/api/orders_load?key=' + encodeURIComponent(key))
     .then(r=>r.json())
     .then(j=>{
-      if(!j.ok) { alert('Ошибка загрузки: ' + (j.error||'')); log('orders_load error: ' + (j.error||'')); return; }
+      if(!j.ok) { toast('Ошибка загрузки', j.error || 'Не удалось загрузить', 'err', 6000); log('orders_load error: ' + (j.error||'')); return; }
       const order = j.order || [];
       SAVED_ORDER = order.slice();
       setSortMode('custom');
-      applySortAndRender(true);
+      applySortAndRender(true, true);
+      toast('Порядок загружен', `"${j.name || key}"`, 'ok');
       // persist as last custom so it remembers on next start
       fetch('/api/save_order', {
         method:'POST',
@@ -535,17 +723,32 @@ function loadNamedOrder() {
         log(`Named order loaded: "${j.name || key}" (items=${order.length})`);
       });
     })
-    .catch(e=>{ alert('Ошибка загрузки: ' + e); log('orders_load error: ' + e); });
+    .catch(e=>{ toast('Ошибка загрузки', (e && e.message) ? e.message : String(e), 'err', 6000); log('orders_load error: ' + e); });
 }
-function applySortAndRender(keepSelection=true) {
-  const arr = buildViewOrder();
-  renderChannelList(arr, keepSelection);
-  scheduleRedraw();
+function applySortAndRender(keepSelection=true, doRedraw=true) {
+  // Сначала строим полный порядок (сортировка), потом применяем фильтры только для отображения.
+  const base = buildViewOrder();
+  CHANNELS_VIEW_ALL = base.slice();
+
+  const filtered = applyChannelFilters(base);
+  // Если включён фильтр, НЕ обрезаем selection до видимых элементов
+  const prune = !hasActiveFilter();
+  renderChannelList(filtered, keepSelection, prune);
+
+  // Фильтрация списка не должна пересчитывать график. Перерисовка только при изменении выбора/порядка.
+  if(doRedraw) scheduleRedraw();
+  updateSelectedCountUI();
 }
 
 function loadTest() {
   const folder = el("folder").value.trim();
-  if(!folder) { alert("Укажи папку с тестом"); return; }
+  if(!folder) { toast('Папка не указана', 'Укажи папку с тестом', 'warn'); return; }
+
+  const endBusy = beginBusy('Загружаю тест…');
+  const btn = el('btnLoad');
+  const btnPick = el('btnPick');
+  if(btn) btn.disabled = true;
+  if(btnPick) btnPick.disabled = true;
 
   fetch("/api/load", {
     method:"POST",
@@ -554,7 +757,11 @@ function loadTest() {
   })
   .then(r=>r.json())
   .then(j=>{
-    if(!j.ok) { alert("Ошибка: " + j.error); log("load error: " + j.error); return; }
+    if(!j.ok) {
+      toast('Ошибка загрузки', j.error || 'Не удалось загрузить тест', 'err', 6000);
+      log("load error: " + j.error);
+      return;
+    }
     LOADED = true;
 
     CHANNELS_FILE = j.channels || [];
@@ -572,17 +779,32 @@ function loadTest() {
       el("summary").textContent = "Нет данных";
     }
 
+    // Сбрасываем фильтры на новом тесте, чтобы список не оказался пустым
+    clearFilters();
+
     // Requirement: no sorting on load -> "file" mode
     setSortMode("file");
-    applySortAndRender(false);
+    applySortAndRender(false, false);
+    updateStepUI();
 
     log("Loaded: " + (j.folder || folder));
+    toast('Тест загружен', `Каналов: ${CHANNELS_FILE.length}, точек: ${SUMMARY ? SUMMARY.points : '—'}`, 'ok');
     drawPlot();
   })
-  .catch(e=>log("loadTest error: " + e));
+  .catch(e=>{
+    toast('Ошибка загрузки', (e && e.message) ? e.message : String(e), 'err', 6000);
+    log("loadTest error: " + e);
+  })
+  .finally(()=>{
+    if(btn) btn.disabled = false;
+    if(btnPick) btnPick.disabled = false;
+    endBusy();
+  });
 }
 
 function getStep() {
+  const cb = el('stepAuto');
+  if(cb && cb.checked) return computeAutoStep();
   const v = parseInt(el("step").value || "1", 10);
   return isFinite(v) && v > 0 ? v : 1;
 }
@@ -596,9 +818,15 @@ function labelFor(code) {
 function drawPlot() {
   if(!LOADED || !SUMMARY) return;
   const codes = getSelectedCodes();
-  if(!codes.length) { alert("Выбери хотя бы один канал"); return; }
+  if(!codes.length) { toast('Каналы не выбраны', 'Выбери хотя бы один канал', 'warn'); return; }
 
+  // обновим подсказку авто-шага под текущий диапазон
+  updateStepUI();
   const step = getStep();
+
+  const endBusy = beginBusy('Строю график…');
+  const btn = el('btnDraw');
+  if(btn) btn.disabled = true;
 
   // Запоминаем текущий видимый диапазон ДО перерисовки, чтобы он не сбрасывался при смене датчиков.
   // Важно: НЕ переводим в ISO-строки (toISOString), иначе на некоторых ПК появляется смещение по времени/оси.
@@ -617,17 +845,24 @@ function drawPlot() {
   fetch(`/api/series?channels=${encodeURIComponent(codes.join(","))}&start_ms=${start_ms}&end_ms=${end_ms}&step=${step}`)
     .then(r=>r.json())
     .then(j=>{
-      if(!j.ok) { alert("Ошибка: " + j.error); log("series error: " + j.error); return; }
+      if(!j.ok) {
+        toast('Ошибка данных', j.error || 'Не удалось получить серию', 'err', 6000);
+        log("series error: " + j.error);
+        return;
+      }
       // IMPORTANT: use local strings instead of Date objects to avoid a fixed timezone offset
       // on some machines/browsers when Plotly formats dates.
       const t = (j.t_ms || []).map((ms) => new Date(msToPlotX(ms)));
       const series = j.series || {};
       const traces = [];
 
+      // Производительность: при большом числе точек лучше использовать WebGL (scattergl)
+      const useGL = (t.length > 8000) || (codes.length * t.length > 300000);
+
       codes.forEach(code => {
         const y = series[code] || [];
         traces.push({
-          type: "scatter",
+          type: useGL ? "scattergl" : "scatter",
           mode: "lines",
           name: labelFor(code),
           x: t,
@@ -641,7 +876,8 @@ function drawPlot() {
         // Привяжем uirevision к конкретному тесту (чтобы при загрузке нового теста zoom сбрасывался,
         // а при смене датчиков внутри одного теста — сохранялся).
         uirevision: `lemure-${SUMMARY.start_ms}-${SUMMARY.end_ms}`,
-        margin: {l: 70, r: 20, t: 140, b: 90},
+        showlegend: getShowLegend(),
+        margin: {l: 70, r: 20, t: getShowLegend() ? 140 : 40, b: 90},
         hovermode: "x unified",
         xaxis: {
           type: "date",
@@ -658,7 +894,7 @@ function drawPlot() {
           },
         },
         yaxis: {automargin: true},
-        legend: {
+        legend: getShowLegend() ? {
           orientation: "h",
           yanchor: "bottom",
           y: 1.22,
@@ -669,7 +905,7 @@ function drawPlot() {
           entrywidth: 240,
           itemclick: "toggle",
           itemdoubleclick: "toggleothers",
-        },
+        } : undefined,
       };
 
       // Если до перерисовки пользователь уже выбрал диапазон (zoom/range-slider),
@@ -727,23 +963,30 @@ function drawPlot() {
       if(!currentRange) currentRange = [SUMMARY.start_ms, SUMMARY.end_ms];
       updateRangeText();
 
-      log(`Plot updated: channels=${codes.length}, step=${step}`);
+      log(`Plot updated: channels=${codes.length}, step=${step}${(el('stepAuto')?.checked ? ' (auto)' : '')}`);
     })
-    .catch(e=>log("drawPlot error: " + e));
+    .catch(e=>{
+      toast('Ошибка графика', (e && e.message) ? e.message : String(e), 'err', 6000);
+      log("drawPlot error: " + e);
+    })
+    .finally(()=>{
+      if(btn) btn.disabled = false;
+      endBusy();
+    });
 }
 
 
 
 
 function exportData(fmt) {
-  if(!LOADED || !SUMMARY) { alert("Сначала загрузите тест"); return; }
+  if(!LOADED || !SUMMARY) { toast('Нет данных', 'Сначала загрузите тест', 'warn'); return; }
 
   fmt = (fmt || "csv").toLowerCase();
   if(fmt !== "csv" && fmt !== "xlsx") fmt = "csv";
 
   const codes = getSelectedCodes();
   if(!codes || !codes.length) {
-    alert("Выбери хотя бы один канал");
+    toast('Каналы не выбраны', 'Выбери хотя бы один канал', 'warn');
     return;
   }
 
@@ -759,7 +1002,10 @@ function exportData(fmt) {
     end_ms   = Math.max(currentRange[0], currentRange[1]);
   }
 
+  updateStepUI();
   const step = getStep();
+
+  const endBusy = beginBusy(`Экспортирую ${fmt.toUpperCase()}…`);
 
   const st  = el("tplStatus");
   const bc = el("btnCsv");
@@ -801,24 +1047,27 @@ function exportData(fmt) {
       setTimeout(()=>URL.revokeObjectURL(url), 2000);
 
       if(st) st.textContent = "Готово. Файл скачивается…";
+      toast('Экспорт готов', `${fmt.toUpperCase()}: ${codes.length} каналов`, 'ok');
       log(`Export ${fmt.toUpperCase()} OK: channels=${codes.length}, range=${new Date(start_ms).toLocaleString()} → ${new Date(end_ms).toLocaleString()}, step=${step}`);
     })
     .catch((e) => {
-      if(st) st.textContent = "Ошибка: " + (e && e.message ? e.message : e);
+      const msg = (e && e.message) ? e.message : String(e);
+      if(st) st.textContent = "Ошибка: " + msg;
+      toast('Ошибка экспорта', msg, 'err', 6000);
       log("Export " + fmt + " error: " + e);
-      alert("Ошибка экспорта. Смотри блок 'Лог'.\n\n" + (e && e.message ? e.message : e));
     })
     .finally(() => {
       if(bc) bc.disabled = false;
       if(bx) bx.disabled = false;
+      endBusy();
     });
 }
 function exportTemplate() {
-  if(!LOADED || !SUMMARY) { alert("Сначала загрузите тест"); return; }
+  if(!LOADED || !SUMMARY) { toast('Нет данных', 'Сначала загрузите тест', 'warn'); return; }
 
   const codes = getSelectedCodes();
   if(!codes || !codes.length) {
-    alert("Выбери хотя бы один канал");
+    toast('Каналы не выбраны', 'Выбери хотя бы один канал', 'warn');
     return;
   }
 
@@ -834,7 +1083,10 @@ function exportTemplate() {
     end_ms   = Math.max(currentRange[0], currentRange[1]);
   }
 
+  updateStepUI();
   const step = getStep();
+
+  const endBusy = beginBusy('Формирую XLSX по шаблону…');
 
   const btn = el("btnTpl");
   const st  = el("tplStatus");
@@ -873,15 +1125,18 @@ function exportTemplate() {
       setTimeout(()=>URL.revokeObjectURL(url), 2000);
 
       if(st) st.textContent = "Готово. Файл скачивается…";
+      toast('Шаблон готов', `${codes.length} каналов`, 'ok');
       log(`Export TEMPLATE OK: channels=${codes.length}, range=${new Date(start_ms).toLocaleString()} → ${new Date(end_ms).toLocaleString()}, step=${step}`);
     })
     .catch((e) => {
-      if(st) st.textContent = "Ошибка: " + (e && e.message ? e.message : e);
+      const msg = (e && e.message) ? e.message : String(e);
+      if(st) st.textContent = "Ошибка: " + msg;
+      toast('Ошибка шаблона', msg, 'err', 6000);
       log("Export TEMPLATE error: " + e);
-      alert("Ошибка при формировании шаблона. Смотри блок 'Лог'.\n\n" + (e && e.message ? e.message : e));
     })
     .finally(() => {
       if(btn) { btn.disabled = false; btn.textContent = "В шаблон XLSX"; }
+      endBusy();
     });
 }
 
@@ -1014,7 +1269,7 @@ function saveStyleSettings() {
     .catch(e=>{
       _styleStatus('Ошибка сохранения', true);
       log('Settings save error: ' + e);
-      alert('Не удалось сохранить настройки оформления.\n\n' + (e && e.message ? e.message : e));
+      toast('Ошибка сохранения', (e && e.message) ? e.message : String(e), 'err', 6000);
     })
     .finally(()=>{ if(btn) btn.disabled = false; });
 }
@@ -1037,6 +1292,12 @@ function wire() {
   const bd = el("btnDraw");
   if(bd) bd.addEventListener("click", drawPlot);
 
+  // Enter в поле папки = загрузить
+  const fld = el('folder');
+  if(fld) fld.addEventListener('keydown', (e)=>{
+    if(e.key === 'Enter') loadTest();
+  });
+
   const bc = el("btnCsv");
   if(bc) bc.addEventListener("click", () => exportData("csv"));
 
@@ -1053,7 +1314,65 @@ function wire() {
   if(bn) bn.addEventListener("click", clearAll);
 
   const sm = el("sortMode");
-  if(sm) sm.addEventListener("change", () => applySortAndRender(true));
+  if(sm) sm.addEventListener("change", () => applySortAndRender(true, true));
+
+  // ===== Filters (search / only selected / chips) =====
+  let _ft = null;
+  const applyFiltersDebounced = () => {
+    if(_ft) clearTimeout(_ft);
+    _ft = setTimeout(() => applySortAndRender(true, false), 150);
+  };
+
+  const si = el('chanSearch');
+  if(si) si.addEventListener('input', () => {
+    FILTER_TEXT = (si.value || '').trim();
+    applyFiltersDebounced();
+  });
+  if(si) si.addEventListener('keydown', (e)=>{
+    if(e.key === 'Escape') { si.value=''; FILTER_TEXT=''; applySortAndRender(true, false); }
+  });
+
+  const onlySel = el('onlySelected');
+  if(onlySel) onlySel.addEventListener('change', () => {
+    FILTER_ONLY_SELECTED = !!onlySel.checked;
+    applySortAndRender(true, false);
+  });
+
+  const clr = el('btnClearFilter');
+  if(clr) clr.addEventListener('click', clearFilters);
+
+  const chipBox = el('chipRow');
+  if(chipBox) chipBox.addEventListener('click', (e)=>{
+    const btn = e.target && e.target.closest ? e.target.closest('button.chip') : null;
+    if(!btn) return;
+    // clear button
+    if(btn.id === 'btnClearFilter') return;
+    const type = btn.getAttribute('data-ftype');
+    const val = btn.getAttribute('data-fval');
+    if(!type || !val) return;
+
+    const isActive = btn.classList.contains('active');
+    document.querySelectorAll('.chip.active').forEach(b=>b.classList.remove('active'));
+    if(isActive) {
+      FILTER_CHIP = null;
+    } else {
+      btn.classList.add('active');
+      FILTER_CHIP = {type, value: val};
+    }
+    applySortAndRender(true, false);
+  });
+
+  // ===== Step controls =====
+  const stAuto = el('stepAuto');
+  if(stAuto) stAuto.addEventListener('change', () => { updateStepUI(); scheduleRedraw(); });
+  const stTarget = el('stepTarget');
+  if(stTarget) stTarget.addEventListener('change', () => { updateStepUI(); scheduleRedraw(); });
+  const stInp = el('step');
+  if(stInp) stInp.addEventListener('change', () => { updateStepUI(); scheduleRedraw(); });
+
+  // Legend toggle
+  const lg = el('showLegend');
+  if(lg) lg.addEventListener('change', () => scheduleRedraw());
 
   const bs = el("btnSaveNamed");
   if(bs) bs.addEventListener("click", saveNamedOrder);
@@ -1079,6 +1398,9 @@ function wire() {
 
   // populate list on startup
   refreshNamedOrders();
+
+  // init step UI
+  updateStepUI();
 
   log("Ready. По умолчанию порядок каналов = как в файле. Сортировку можно менять, а перетаскивание сохраняет 'Мой порядок'.");
 }

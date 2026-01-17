@@ -5,7 +5,7 @@
   <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>LeMuRe Viewer</title>
-  <link rel="stylesheet" href="/static/style.css?v=20260116190000"/>
+  <link rel="stylesheet" href="/static/style.css?v={{asset_v}}"/>
   <!-- Plotly через CDN (если интернет закрыт — скажи, сделаю офлайн-версию с локальным plotly.js) -->
   <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 </head>
@@ -19,7 +19,7 @@
     <section class="panel">
       <div class="row">
         <label>Папка теста:</label>
-        <input id="folder" type="text" placeholder="Например: C:\Tests\...\Test-05" />
+        <input id="folder" type="text" placeholder="Например: C:\\Tests\\...\\Test-05" />
         <button id="btnPick">Обзор…</button>
         <button id="btnLoad">Загрузить</button>
       </div>
@@ -47,13 +47,35 @@
               </select>
             </span>
           </div>
+
+          <div class="filterToolbar">
+            <input id="chanSearch" type="text" placeholder="Поиск каналов (код/название/ед.)…" />
+            <label class="check"><input id="onlySelected" type="checkbox"/> только выбранные</label>
+            <span id="selCount" class="miniBadge">Выбрано: 0</span>
+          </div>
+
+          <div class="chipRow" id="chipRow">
+            <button class="chip" type="button" data-ftype="prefix" data-fval="B-">B-*</button>
+            <button class="chip" type="button" data-ftype="prefix" data-fval="C-">C-*</button>
+            <button class="chip" type="button" data-ftype="prefix" data-fval="UR-">UR-*</button>
+            <button class="chip" type="button" data-ftype="prefix" data-fval="T-">T-*</button>
+            <span class="chipSep"></span>
+            <button class="chip" type="button" data-ftype="unit" data-fval="°C">°C</button>
+            <button class="chip" type="button" data-ftype="unit" data-fval="bar">bar</button>
+            <button class="chip" type="button" data-ftype="unit" data-fval="%">%</button>
+            <button class="chip" type="button" data-ftype="unit" data-fval="W">W</button>
+            <button class="chip" type="button" data-ftype="unit" data-fval="V">V</button>
+            <button class="chip chipClear" type="button" id="btnClearFilter">Сброс</button>
+          </div>
+
           <div class="orderToolbar">
-            <input id="orderName" type="text" placeholder="Имя порядка…"/>
+            <input id="orderName" type="text" placeholder="Имя порядка (для сохранения)…"/>
             <button id="btnSaveNamed" type="button">Сохранить</button>
             <select id="orderSelect" title="Сохранённые порядки"></select>
             <button id="btnLoadNamed" type="button">Загрузить</button>
             <button id="btnRefreshOrders" type="button">Обновить</button>
           </div>
+
           <ul id="channelList" class="chanList" tabindex="0"></ul>
           <div class="hint">Выбор как в Windows: клик — выбрать, Ctrl+клик — добавить/убрать, Shift+клик — диапазон. Двойной клик — оставить только этот канал.</div>
         </div>
@@ -61,18 +83,26 @@
         <div class="box">
           <div class="boxTitle">Диапазон / Экспорт</div>
 
-          <div class="row2">
-  <label>Шаг (каждый N-й замер):</label>
-  <input id="step" type="number" min="1" value="1" style="width:80px"
-         title="Прореживание данных: 1 — каждый замер; 2 — каждый второй; 10 — каждый десятый. Чем больше N, тем быстрее график и меньше размер экспорта, но ниже детализация."/>
-  <span class="qmark" title="Прореживание данных: 1 — каждый замер; 2 — каждый второй; 10 — каждый десятый. Чем больше N, тем быстрее график и меньше размер экспорта, но ниже детализация.">?</span>
-</div>
-<div class="helpText">
-  1 — все точки. 2 — каждая 2-я точка. Большие значения ускоряют построение/выгрузку, но уменьшают точность.
-</div>
+          <div class="row2 stepRow">
+            <label>Шаг:</label>
+            <label class="check"><input id="stepAuto" type="checkbox" checked/> Авто</label>
+            <select id="stepTarget" title="Целевое количество точек (примерно) для авто-шага">
+              <option value="5000" selected>≈ 5k точек</option>
+              <option value="10000">≈ 10k точек</option>
+              <option value="20000">≈ 20k точек</option>
+            </select>
+            <input id="step" type="number" min="1" value="1" style="width:80px"
+                   title="Прореживание данных: 1 — каждый замер; 2 — каждый второй; 10 — каждый десятый. Чем больше N, тем быстрее график и меньше размер экспорта, но ниже детализация."/>
+            <span id="stepAutoInfo" class="mini"></span>
+            <span class="qmark" title="Прореживание данных: 1 — каждый замер; 2 — каждый второй; 10 — каждый десятый. Чем больше N, тем быстрее график и меньше размер экспорта, но ниже детализация.">?</span>
+          </div>
+          <div class="helpText">
+            Авто-режим подбирает шаг так, чтобы точек было примерно как в выбранной цели. Вручную: 1 — все точки, 2 — каждая 2-я и т.д.
+          </div>
 
           <div class="row2">
             <button id="btnDraw">Построить график</button>
+            <label class="check"><input id="showLegend" type="checkbox" checked/> Легенда</label>
           </div>
 
           <div class="row2">
@@ -120,7 +150,8 @@
                   <input id="wMax" type="number" step="0.1"/>
                   <input id="wCMax" type="color" title="Цвет max"/>
                 </div>
-</div>
+              </div>
+
               <div class="scaleRow">
                 <div class="scaleName">X</div>
                 <div class="scaleGroup">
@@ -138,7 +169,8 @@
                   <input id="xMax" type="number" step="0.1"/>
                   <input id="xCMax" type="color" title="Цвет max"/>
                 </div>
-</div>
+              </div>
+
               <div class="scaleRow">
                 <div class="scaleName">Y</div>
                 <div class="scaleGroup">
@@ -156,7 +188,7 @@
                   <input id="yMax" type="number" step="0.1"/>
                   <input id="yCMax" type="color" title="Цвет max"/>
                 </div>
-</div>
+              </div>
             </div>
 
             <div class="row2">
@@ -190,6 +222,15 @@
     </section>
   </div>
 
-  <script src="/static/app.js?v=20260116190000"></script>
+  <!-- Busy overlay + toasts -->
+  <div id="busyOverlay" class="overlay hidden" aria-hidden="true">
+    <div class="overlayBox">
+      <div class="spinnerLarge"></div>
+      <div id="busyText" class="overlayText">Работаю…</div>
+    </div>
+  </div>
+  <div id="toastContainer" class="toastContainer" aria-live="polite" aria-atomic="true"></div>
+
+  <script src="/static/app.js?v={{asset_v}}"></script>
 </body>
 </html>

@@ -1,5 +1,5 @@
-
 from __future__ import annotations
+
 
 def log_exception_to_file(prefix: str, exc: Exception) -> str:
     """Write traceback to a local file and return that file path."""
@@ -37,15 +37,13 @@ from typing import List, Dict, Any, Tuple
 
 from flask import Flask, render_template, request, jsonify, send_file
 
+
 def _send_file_compat(fp, mimetype: str, filename: str):
     """send_file compat for different Flask versions (download_name vs attachment_filename)."""
     try:
         return send_file(fp, mimetype=mimetype, as_attachment=True, download_name=filename)
     except TypeError:
         return send_file(fp, mimetype=mimetype, as_attachment=True, attachment_filename=filename)
-
-
-
 
 
 from lemure_reader import load_test, ChannelInfo
@@ -91,12 +89,15 @@ SETTINGS_FILE = os.path.join(os.path.dirname(__file__), 'viewer_settings.json')
 DEFAULT_VIEWER_SETTINGS: Dict[str, Any] = {
     'row_mark': {
         'threshold_T': 150,
-        'color': '#FFF2CC',   # мягкий жёлтый (как в примере)
+        'color': '#FFF2CC',  # мягкий жёлтый (как в примере)
         'intensity': 100,
     },
-    'scales': {        'W': {'min': 0, 'opt': 1, 'max': 2, 'colors': {'min': '#0000FF', 'opt': '#00FF00', 'max': '#FF0000'}},        'X': {'min': 0, 'opt': 9, 'max': 18, 'colors': {'min': '#0000FF', 'opt': '#00FF00', 'max': '#FF0000'}},        'Y': {'min': 0, 'opt': 5, 'max': 10, 'colors': {'min': '#0000FF', 'opt': '#00FF00', 'max': '#FF0000'}},
-},
+    'scales': {'W': {'min': 0, 'opt': 1, 'max': 2, 'colors': {'min': '#0000FF', 'opt': '#00FF00', 'max': '#FF0000'}},
+               'X': {'min': 0, 'opt': 9, 'max': 18, 'colors': {'min': '#0000FF', 'opt': '#00FF00', 'max': '#FF0000'}},
+               'Y': {'min': 0, 'opt': 5, 'max': 10, 'colors': {'min': '#0000FF', 'opt': '#00FF00', 'max': '#FF0000'}},
+               },
 }
+
 
 def _deep_merge(dst: Dict[str, Any], src: Dict[str, Any]) -> Dict[str, Any]:
     for k, v in (src or {}).items():
@@ -105,6 +106,7 @@ def _deep_merge(dst: Dict[str, Any], src: Dict[str, Any]) -> Dict[str, Any]:
         else:
             dst[k] = v
     return dst
+
 
 def _normalize_hex_color(s: str, default: str = '#FFF2CC') -> str:
     s = (s or '').strip()
@@ -115,6 +117,7 @@ def _normalize_hex_color(s: str, default: str = '#FFF2CC') -> str:
     if re.fullmatch(r'#[0-9A-Fa-f]{6}', s):
         return s.upper()
     return default
+
 
 def _argb_from_hex_and_intensity(hex_color: str, intensity_0_100: int) -> str:
     """Convert CSS #RRGGBB + intensity to Excel ARGB (FFRRGGBB), blending with white.
@@ -130,6 +133,7 @@ def _argb_from_hex_and_intensity(hex_color: str, intensity_0_100: int) -> str:
     g2 = int(round(g * (1.0 - w) + 255 * w))
     b2 = int(round(b * (1.0 - w) + 255 * w))
     return f'FF{r2:02X}{g2:02X}{b2:02X}'
+
 
 def load_viewer_settings() -> Dict[str, Any]:
     # Start with defaults
@@ -192,8 +196,10 @@ def load_viewer_settings() -> Dict[str, Any]:
             merged['max'] = merged['opt'] + 1
         # Colors for 3-point scale (min/opt/max)
         colors = merged.get('colors') if isinstance(merged.get('colors'), dict) else {}
+
         def _col(key, default):
             return _normalize_hex_color(str(colors.get(key) or ''), default=default)
+
         merged['colors'] = {
             'min': _col('min', '#0000FF'),
             'opt': _col('opt', '#00FF00'),
@@ -241,8 +247,10 @@ def normalize_viewer_settings(user_s: Dict[str, Any]) -> Dict[str, Any]:
             merged['max'] = merged['opt'] + 1
         # Colors for 3-point scale (min/opt/max)
         colors = merged.get('colors') if isinstance(merged.get('colors'), dict) else {}
+
         def _col(key, default):
             return _normalize_hex_color(str(colors.get(key) or ''), default=default)
+
         merged['colors'] = {
             'min': _col('min', '#0000FF'),
             'opt': _col('opt', '#00FF00'),
@@ -263,11 +271,13 @@ def save_viewer_settings(settings: Dict[str, Any]) -> None:
 
 VIEWER_SETTINGS = load_viewer_settings()
 
+
 def _ensure_orders_dir() -> None:
     try:
         os.makedirs(ORDERS_DIR, exist_ok=True)
     except Exception:
         pass
+
 
 def _sanitize_order_key(name: str) -> str:
     # Keep it filesystem-safe (Windows 7 friendly)
@@ -278,6 +288,7 @@ def _sanitize_order_key(name: str) -> str:
     if len(name) > 64:
         name = name[:64].strip()
     return name
+
 
 def _order_path_by_key(key: str) -> str:
     _ensure_orders_dir()
@@ -297,6 +308,7 @@ def load_saved_order() -> List[str]:
     except Exception:
         pass
     return []
+
 
 def save_order(order: List[str]) -> None:
     try:
@@ -338,8 +350,10 @@ def _build_state(folder: str) -> Dict[str, Any]:
     t_list = [r["t_ms"] for r in data["rows"]]
     return {"loaded": True, "folder": folder, "data": data, "t_list": t_list}
 
+
 def _channel_to_dict(ch: ChannelInfo) -> Dict[str, str]:
     return {"code": ch.code, "name": ch.name, "unit": ch.unit, "label": ch.label}
+
 
 def _summary(data: Dict[str, Any]) -> Dict[str, Any]:
     rows = data["rows"]
@@ -351,9 +365,10 @@ def _summary(data: Dict[str, Any]) -> Dict[str, Any]:
         "points": len(rows),
         "start_ms": t0,
         "end_ms": t1,
-        "start": dt.datetime.fromtimestamp(t0/1000).strftime("%Y-%m-%d %H:%M:%S"),
-        "end": dt.datetime.fromtimestamp(t1/1000).strftime("%Y-%m-%d %H:%M:%S"),
+        "start": dt.datetime.fromtimestamp(t0 / 1000).strftime("%Y-%m-%d %H:%M:%S"),
+        "end": dt.datetime.fromtimestamp(t1 / 1000).strftime("%Y-%m-%d %H:%M:%S"),
     }
+
 
 def _slice_by_time(t_list: List[int], start_ms: int, end_ms: int) -> Tuple[int, int]:
     if start_ms > end_ms:
@@ -374,9 +389,22 @@ def add_no_cache_headers(resp):
         pass
     return resp
 
+
 @app.route("/")
 def index():
-    return render_template("index.html", port=APP_PORT)
+    # Версия статики: по mtime файлов, чтобы браузер гарантированно брал свежие JS/CSS.
+    try:
+        base = Path(__file__).resolve().parent
+        mt = 0.0
+        for p in [base / "static" / "app.js", base / "static" / "style.css", base / "templates" / "index.html"]:
+            try:
+                mt = max(mt, p.stat().st_mtime)
+            except Exception:
+                pass
+        asset_v = str(int(mt))
+    except Exception:
+        asset_v = str(int(time_mod.time()))
+    return render_template("index.html", port=APP_PORT, asset_v=asset_v)
 
 
 @app.route("/api/settings", methods=["GET", "POST"])
@@ -396,6 +424,7 @@ def api_settings():
     VIEWER_SETTINGS = s
     save_viewer_settings(s)
     return jsonify({"ok": True, "settings": s})
+
 
 @app.route("/api/pick_folder", methods=["POST"])
 def pick_folder():
@@ -554,7 +583,6 @@ def api_save_order():
     return jsonify({"ok": True, "saved": len(normalized)})
 
 
-
 @app.route("/api/orders_list", methods=["GET"])
 def api_orders_list():
     """Return list of saved named orders."""
@@ -577,7 +605,7 @@ def api_orders_list():
             except Exception:
                 # ignore broken files
                 continue
-        items.sort(key=lambda x: x.get('name','').lower())
+        items.sort(key=lambda x: x.get('name', '').lower())
         return jsonify({"ok": True, "orders": items})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e), "orders": []})
@@ -651,15 +679,18 @@ def api_orders_load():
         return jsonify({"ok": True, "key": key, "name": str(data.get('name') or key), "order": out})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
 def _export_csv(rows: List[Dict[str, Any]], channels: List[str]) -> bytes:
     import csv
     out = io.StringIO()
     writer = csv.writer(out, delimiter=";")
     writer.writerow(["timestamp"] + channels)
     for r in rows:
-        ts = dt.datetime.fromtimestamp(r["t_ms"]/1000).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        ts = dt.datetime.fromtimestamp(r["t_ms"] / 1000).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
         writer.writerow([ts] + [r.get(c) if r.get(c) is not None else "" for c in channels])
     return out.getvalue().encode("utf-8-sig")
+
 
 def _export_xlsx(rows: List[Dict[str, Any]], channels: List[str]) -> bytes:
     from openpyxl import Workbook
@@ -668,12 +699,13 @@ def _export_xlsx(rows: List[Dict[str, Any]], channels: List[str]) -> bytes:
     ws.title = "data"
     ws.append(["timestamp"] + channels)
     for r in rows:
-        ts = dt.datetime.fromtimestamp(r["t_ms"]/1000).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        ts = dt.datetime.fromtimestamp(r["t_ms"] / 1000).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
         ws.append([ts] + [r.get(c) for c in channels])
     bio = io.BytesIO()
     wb.save(bio)
     bio.seek(0)
     return bio.getvalue()
+
 
 @app.route("/api/export", methods=["GET"])
 def api_export():
@@ -708,14 +740,13 @@ def api_export():
     if fmt == "xlsx":
         payload = _export_xlsx(sliced, ch)
         return _send_file_compat(io.BytesIO(payload),
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            "export.xlsx")
+                                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                 "export.xlsx")
     else:
         payload = _export_csv(sliced, ch)
         return _send_file_compat(io.BytesIO(payload),
-            "text/csv",
-            "export.csv")
-
+                                 "text/csv",
+                                 "export.csv")
 
 
 def _nearest_index(t_list: List[int], target_ms: int) -> int:
@@ -727,10 +758,10 @@ def _nearest_index(t_list: List[int], target_ms: int) -> int:
         return 0
     if i >= len(t_list):
         return len(t_list) - 1
-    a = t_list[i-1]
+    a = t_list[i - 1]
     b = t_list[i]
     if abs(target_ms - a) <= abs(b - target_ms):
-        return i-1
+        return i - 1
     return i
 
 
@@ -766,6 +797,7 @@ def api_export_template():
         if lp:
             msg = msg + f" (подробности в {os.path.basename(lp)})"
         return jsonify({"ok": False, "error": msg}), 500
+
 
 def _api_export_template_impl():
     """Заполнить template.xlsx, сохранив форматирование/цвета/формулы.
@@ -827,18 +859,20 @@ def _api_export_template_impl():
         else:
             idxs.append(idx)
 
-    # Selected channels (optional query param "channels") are used ONLY as a *preference*
-    # when resolving ambiguous keys (A-*/C-* variants). We intentionally DO NOT filter
-    # the template output by the current selection, because the template expects a fixed
-    # set of base columns (incl. column T that drives the yellow highlight).
+    # Selected channels from UI (optional query param "channels").
+    # В отличие от обычного экспорта, "в шаблон" раньше должен был учитывать выбор
+    # пользователя: выгружать только выбранные каналы. В Stage-1 по ошибке это поведение
+    # было изменено на "выгружать все".
     ch_arg = (request.args.get("channels") or "").strip()
-    selected = set([c.strip() for c in ch_arg.split(",") if c.strip()])
+    selected_list = [c.strip() for c in ch_arg.split(",") if c.strip()]
+    selected = set(selected_list)
 
     # Debug: log what we received (goes to run log)
     try:
         print("[TEMPLATE] start_ms=", start_ms, "end_ms=", end_ms, "channels=", ",".join(sorted(selected)))
     except Exception:
         pass
+
     def resolve_for_selection(key: str) -> str:
         """Resolve a channel code for a given key.
 
@@ -859,11 +893,16 @@ def _api_export_template_impl():
             return ""
 
         if selected:
-            # If any of the matching channels is selected, prefer it.
+            # Если выбор задан — берём только выбранные варианты.
+            for pref in ("A-", "C-"):
+                for c in matches:
+                    if c in selected and c.startswith(pref):
+                        return c
             for c in matches:
                 if c in selected:
                     return c
-            # Otherwise fall back to the default preference (do NOT blank the column).
+            # Нет выбранных совпадений — оставляем колонку пустой.
+            return ""
 
         # Prefer A- then C- then the first remaining
         for pref in ("A-", "C-"):
@@ -892,16 +931,15 @@ def _api_export_template_impl():
         "V": 19,
         "W": 20,
     }
-    # key_to_code = {k: resolve_for_selection(k) for k in key_to_col.keys()}
-    resolver = ChannelResolver(cols)
-    key_to_code = {k: resolver.resolve(k) for k in key_to_col.keys()}
+    # При экспорте "в шаблон" учитываем выбор каналов пользователя.
+    key_to_code = {k: resolve_for_selection(k) for k in key_to_col.keys()}
     # Extra sensors (not mapped to D..T): write them starting from column Z.
     # Sorting is "human-friendly": 1, 2, 3 ... (natural sort) by sensor name.
     fixed_codes = set([v for v in key_to_code.values() if v])
 
-    # For the template we always include *all* channels (extras start from column Z).
-    # Selection (if any) should not hide channels in the template.
-    candidate_codes = list(cols)
+    # Дополнительные каналы (Z..): если пользователь выбрал каналы — выгружаем только их.
+    # Иначе (если channels не передан) сохраняем старое поведение: выгрузить всё.
+    candidate_codes = [c for c in selected_list if c in cols] if selected_list else list(cols)
 
     extra_codes = [c for c in candidate_codes if c and c not in fixed_codes]
 
@@ -952,7 +990,6 @@ def _api_export_template_impl():
     EXTRA_START_COL = 26  # Z
     extra_col_map = {code: (EXTRA_START_COL + i) for i, code in enumerate(extra_codes)}
 
-
     template_path = TEMPLATE_FILE
     if not os.path.isfile(template_path):
         return jsonify({"ok": False, "error": "Не найден template.xlsx рядом с server.py"}), 400
@@ -988,7 +1025,6 @@ def _api_export_template_impl():
                 formula_cols.add(c)
                 pattern_formulas[c] = v
 
-
         # Cache styles from the pattern row once (fix: style_cache was not defined)
         style_cache = {}
         for c in range(1, max_col + 1):
@@ -1002,6 +1038,7 @@ def _api_export_template_impl():
                 'alignment': copy(src.alignment),
                 'protection': copy(src.protection),
             }
+
         def ensure_row_with_style(r: int) -> None:
             """Ensure row exists and has styles like pattern_row. Optimized: reuse style objects (no deepcopy)."""
             if r <= ws.max_row:
@@ -1060,12 +1097,11 @@ def _api_export_template_impl():
                 src_addr = f"{get_column_letter(c)}{pattern_row}"
                 dst_addr = f"{get_column_letter(c)}{r}"
                 try:
-                    ws.cell(row=r, column=c).value = Translator(src_formula, origin=src_addr).translate_formula(dst_addr)
+                    ws.cell(row=r, column=c).value = Translator(src_formula, origin=src_addr).translate_formula(
+                        dst_addr)
                 except Exception:
                     ws.cell(row=r, column=c).value = src_formula
 
-
-        
         # Precompute which template columns we will actually write (only selected channels)
         writers = []
         for key, colnum in key_to_col.items():
@@ -1088,14 +1124,14 @@ def _api_export_template_impl():
                 except Exception:
                     ws.cell(row=header_row, column=colnum).value = _display_name(code)
 
-# Write data
+        # Write data
         for j, idx in enumerate(idxs):
             r = start_row + j
             ws.cell(row=r, column=2).value = _dt.timedelta(seconds=j * 20)
 
             if idx >= 0:
                 tms = rows[idx]["t_ms"]
-                dt_obj = dt.datetime.fromtimestamp(tms/1000)
+                dt_obj = dt.datetime.fromtimestamp(tms / 1000)
                 ws.cell(row=r, column=3).value = dt_obj.time()
 
                 for key, colnum in key_to_col.items():
@@ -1112,7 +1148,6 @@ def _api_export_template_impl():
                             ws.cell(row=r, column=colnum).value = float(v)
                         except Exception:
                             ws.cell(row=r, column=colnum).value = None
-
 
                 # Extra sensors (not mapped to D..T) -> from column Z onward
                 for code in extra_codes:
@@ -1139,7 +1174,6 @@ def _api_export_template_impl():
                 if c in formula_cols:
                     continue
                 ws.cell(row=r, column=c).value = None
-
 
         # ---------------- Conditional formatting (beauty rules) ----------------
         # 1) Если в колонке T (на этой же строке) значение < 150,
@@ -1198,28 +1232,19 @@ def _api_export_template_impl():
 
                     # Colors from settings (independent per column)
 
-
                     colors = spec.get('colors') if isinstance(spec.get('colors'), dict) else {}
-
 
                     def _rgb6(v, default):
 
-
                         hx = _normalize_hex_color(str(v or ''), default=default)
-
 
                         return hx[1:]
 
-
                     col_min = _rgb6(colors.get('min'), '#0000FF')
-
 
                     col_opt = _rgb6(colors.get('opt'), '#00FF00')
 
-
                     col_max = _rgb6(colors.get('max'), '#FF0000')
-
-
 
                     ws.conditional_formatting.add(
                         f"{col_letter}{first_r}:{col_letter}{last_r}",
@@ -1258,6 +1283,7 @@ def _open_browser():
         webbrowser.open(f"http://{APP_HOST}:{APP_PORT}/", new=1)
     except Exception:
         pass
+
 
 if __name__ == "__main__":
     threading.Timer(0.8, _open_browser).start()
