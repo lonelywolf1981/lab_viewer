@@ -17,7 +17,7 @@
     </header>
 
     <section class="panel">
-      <div class="row">
+      <div class="row topRow">
         <label>Папка теста:</label>
         <input id="folder" type="text" placeholder="Например: C:\\Tests\\...\\Test-05" />
         <button id="btnPick">Обзор…</button>
@@ -27,77 +27,100 @@
         <button id="btnClearRecent" type="button" class="btnMini" title="Очистить недавние">Очистить</button>
       </div>
 
-      <div class="row">
-        <div class="box">
-          <div class="boxTitle">Сводка</div>
-          <div id="summary">Не загружено</div>
+      <div class="box summaryWide">
+        <div class="boxTitle">Сводка</div>
+        <div id="summary">Не загружено</div>
+      </div>
+
+      <div class="main3">
+        <!-- 1) Органы управления каналами / сортировкой / наборами -->
+        <div class="box controlsBox">
+          <div class="boxTitle">Управление каналами</div>
+          <div class="boxContent">
+            <div class="chanToolbar">
+  <div class="btnRow2">
+    <button id="btnAll" type="button">Выбрать все</button>
+    <button id="btnNone" type="button">Снять все</button>
+  </div>
+  <div class="sortRow">
+    <label for="sortMode">Сортировка:</label>
+    <select id="sortMode">
+                  <option value="file" selected>Как в файле</option>
+                  <option value="custom">Мой порядок (сохранённый)</option>
+                  <option value="priority">Приоритет + человекоудобно</option>
+                  <option value="natural">Человекоудобно по коду</option>
+                  <option value="label">По названию</option>
+                  <option value="unit">По единицам, затем код</option>
+                </select>
+  </div>
+</div>
+
+            <div class="filterToolbar">
+              <input id="chanSearch" type="text" placeholder="Поиск каналов (код/название/ед.)…" />
+              <label class="check"><input id="onlySelected" type="checkbox"/> только выбранные</label>
+              <label class="check"><input id="viewCompact" type="checkbox"/> компактно</label>
+              <label class="check"><input id="viewGroups" type="checkbox"/> группы</label>
+              <span id="selCount" class="miniBadge">Выбрано: 0</span>
+            </div>
+
+            <div class="chipRow" id="chipRow">
+              <button class="chip" type="button" data-ftype="prefix" data-fval="B-">B-*</button>
+              <button class="chip" type="button" data-ftype="prefix" data-fval="C-">C-*</button>
+              <button class="chip" type="button" data-ftype="prefix" data-fval="UR-">UR-*</button>
+              <button class="chip" type="button" data-ftype="prefix" data-fval="T-">T-*</button>
+              <span class="chipSep"></span>
+              <button class="chip" type="button" data-ftype="unit" data-fval="°C">°C</button>
+              <button class="chip" type="button" data-ftype="unit" data-fval="bar">bar</button>
+              <button class="chip" type="button" data-ftype="unit" data-fval="%">%</button>
+              <button class="chip" type="button" data-ftype="unit" data-fval="W">W</button>
+              <button class="chip" type="button" data-ftype="unit" data-fval="V">V</button>
+              <button class="chip chipClear" type="button" id="btnClearFilter">Сброс</button>
+            </div>
+
+            <div class="orderToolbar">
+  <div class="rowLine">
+    <input id="orderName" type="text" placeholder="Имя порядка (для сохранения)…"/>
+    <button id="btnSaveNamed" type="button">Сохранить</button>
+  </div>
+  <div class="rowLine">
+    <select id="orderSelect" title="Сохранённые порядки"></select>
+    <button id="btnLoadNamed" type="button">Загрузить</button>
+    <button id="btnRefreshOrders" type="button">Обновить</button>
+  </div>
+</div>
+
+            <div class="presetToolbar">
+  <div class="rowLine">
+    <input id="presetName" type="text" placeholder="Имя набора (каналы + настройки)…"/>
+    <button id="btnSavePreset" type="button">Сохранить набор</button>
+  </div>
+  <div class="rowLine">
+    <select id="presetSelect" title="Сохранённые наборы"></select>
+  </div>
+  <div class="btnRow3">
+    <button id="btnLoadPreset" type="button">Применить</button>
+    <button id="btnRefreshPresets" type="button">Обновить</button>
+    <button id="btnDeletePreset" type="button">Удалить</button>
+  </div>
+</div>
+
+            <div class="hint mini">Набор сохраняет: выбранные каналы, шаг, легенду и (при необходимости) порядок/сортировку.</div>
+          </div>
         </div>
 
-        <div class="box">
-          <div class="boxTitle">Каналы</div>
-          <div class="chanToolbar">
-            <button id="btnAll" type="button">Выбрать все</button>
-            <button id="btnNone" type="button">Снять все</button>
-            <span class="sortBox">
-              <label for="sortMode">Сортировка:</label>
-              <select id="sortMode">
-                <option value="file" selected>Как в файле</option>
-                <option value="custom">Мой порядок (сохранённый)</option>
-                <option value="priority">Приоритет + человекоудобно</option>
-                <option value="natural">Человекоудобно по коду</option>
-                <option value="label">По названию</option>
-                <option value="unit">По единицам, затем код</option>
-              </select>
-            </span>
+        <!-- 2) Список каналов -->
+        <div class="box listBox">
+          <div class="boxTitle">Список каналов</div>
+          <div class="boxContent listContent">
+            <ul id="channelList" class="chanList" tabindex="0"></ul>
           </div>
-
-          <div class="filterToolbar">
-            <input id="chanSearch" type="text" placeholder="Поиск каналов (код/название/ед.)…" />
-            <label class="check"><input id="onlySelected" type="checkbox"/> только выбранные</label>
-            <label class="check"><input id="viewCompact" type="checkbox"/> компактно</label>
-            <label class="check"><input id="viewGroups" type="checkbox"/> группы</label>
-            <span id="selCount" class="miniBadge">Выбрано: 0</span>
-          </div>
-
-          <div class="chipRow" id="chipRow">
-            <button class="chip" type="button" data-ftype="prefix" data-fval="B-">B-*</button>
-            <button class="chip" type="button" data-ftype="prefix" data-fval="C-">C-*</button>
-            <button class="chip" type="button" data-ftype="prefix" data-fval="UR-">UR-*</button>
-            <button class="chip" type="button" data-ftype="prefix" data-fval="T-">T-*</button>
-            <span class="chipSep"></span>
-            <button class="chip" type="button" data-ftype="unit" data-fval="°C">°C</button>
-            <button class="chip" type="button" data-ftype="unit" data-fval="bar">bar</button>
-            <button class="chip" type="button" data-ftype="unit" data-fval="%">%</button>
-            <button class="chip" type="button" data-ftype="unit" data-fval="W">W</button>
-            <button class="chip" type="button" data-ftype="unit" data-fval="V">V</button>
-            <button class="chip chipClear" type="button" id="btnClearFilter">Сброс</button>
-          </div>
-
-          <div class="orderToolbar">
-            <input id="orderName" type="text" placeholder="Имя порядка (для сохранения)…"/>
-            <button id="btnSaveNamed" type="button">Сохранить</button>
-            <select id="orderSelect" title="Сохранённые порядки"></select>
-            <button id="btnLoadNamed" type="button">Загрузить</button>
-            <button id="btnRefreshOrders" type="button">Обновить</button>
-
-          <div class="presetToolbar">
-            <input id="presetName" type="text" placeholder="Имя набора (каналы + настройки)…"/>
-            <button id="btnSavePreset" type="button">Сохранить набор</button>
-            <select id="presetSelect" title="Сохранённые наборы"></select>
-            <button id="btnLoadPreset" type="button">Применить</button>
-            <button id="btnDeletePreset" type="button">Удалить</button>
-            <button id="btnRefreshPresets" type="button">Обновить</button>
-          </div>
-          <div class="hint mini">Набор сохраняет: выбранные каналы, шаг, легенду и (при необходимости) порядок/сортировку.</div>
-
-          </div>
-
-          <ul id="channelList" class="chanList" tabindex="0"></ul>
           <div class="hint">Выбор как в Windows: клик — выбрать, Ctrl+клик — добавить/убрать, Shift+клик — диапазон. Двойной клик — оставить только этот канал.</div>
         </div>
 
-        <div class="box">
+        <!-- 3) Диапазон / Экспорт -->
+        <div class="box exportBox">
           <div class="boxTitle">Диапазон / Экспорт</div>
+          <div class="boxContent">
 
           <div class="row2 stepRow">
             <label>Шаг:</label>
@@ -117,17 +140,19 @@
           </div>
 
           <div class="row2">
-            <button id="btnDraw">Построить график</button>
             <label class="check"><input id="showLegend" type="checkbox" checked/> Легенда</label>
           </div>
 
-          <div class="row2">
-            <button id="btnCsv">Экспорт CSV</button>
-            <button id="btnXlsx">Экспорт Excel</button>
-            <button id="btnTpl">В шаблон XLSX</button>
-            <label class="check"><input id="tplExtra" type="checkbox"/> доп. каналы (Z…)</label>
-            <span id="tplStatus" class="statusText"></span>
-          </div>
+          <div class="exportBtnRow">
+  <button id="btnCsv">Экспорт CSV</button>
+  <button id="btnXlsx">Экспорт Excel</button>
+  <button id="btnTpl">В шаблон XLSX</button>
+</div>
+
+<div class="exportOptRow">
+  <label class="check"><input id="tplExtra" type="checkbox" checked/> доп. каналы (Z…)</label>
+  <span id="tplStatus" class="statusText"></span>
+</div>
 
           <div id="exportInfo" class="exportInfo">—</div>
 
@@ -224,6 +249,7 @@
           <div class="hint">
             Интервал экспорта берётся из видимой области графика по оси X.
             Увеличь/уменьши масштаб (выделением мышью или колесом). Текущий интервал покажу справа. Также можно двигать range-slider снизу.
+          </div>
           </div>
         </div>
       </div>

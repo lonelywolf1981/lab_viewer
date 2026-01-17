@@ -1350,8 +1350,8 @@ function loadTest() {
     SUMMARY = j.summary || null;
     if(SUMMARY) {
       el("summary").innerHTML =
-        `Точек: <b>${SUMMARY.points}</b><br>` +
-        `Начало: <b>${SUMMARY.start}</b><br>` +
+        `Точек: <b>${SUMMARY.points}</b> | ` +
+        `Начало: <b>${SUMMARY.start}</b> | ` +
         `Конец: <b>${SUMMARY.end}</b>`;
       currentRange = [SUMMARY.start_ms, SUMMARY.end_ms];
       updateRangeText();

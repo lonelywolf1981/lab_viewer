@@ -1,11 +1,15 @@
+/* базовая предсказуемость размеров */
+*, *::before, *::after { box-sizing: border-box; }
+
 body { font-family: Arial, sans-serif; background:#f6f6f6; margin:0; }
-.wrap { max-width: 1600px; min-width: 1080px; margin: 0 auto; padding: 14px; }
+.wrap { max-width: 1720px; min-width: 1080px; margin: 0 auto; padding: 14px; }
 header { background:#ffffff; padding: 12px 14px; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
 h1 { margin:0; font-size: 22px; }
 .sub { color:#555; margin-top:6px; font-size: 13px; }
 
 .panel { margin-top: 12px; background:#fff; padding: 12px 14px; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
 .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+.topRow{ margin-bottom: 12px; }
 .row label { min-width: 90px; color:#333; }
 #folder { flex:1; min-width: 320px; padding: 7px 9px; }
 button { padding: 7px 12px; cursor:pointer; }
@@ -14,6 +18,45 @@ button { padding: 7px 12px; cursor:pointer; }
 .boxTitle { font-weight: bold; margin-bottom: 8px; }
 .hint { color:#666; font-size: 12px; margin-top: 8px; line-height: 1.35; }
 .row2 { display:flex; gap:8px; align-items:center; margin: 6px 0; flex-wrap:wrap; }
+
+/* ===== Layout: summary on top + 3 equal columns ===== */
+.summaryWide{ flex: 0 0 100%; min-width: 0; margin-bottom: 10px; }
+#summary{white-space:nowrap;}
+.main3{
+  margin-top: 10px;
+  display:grid;
+  grid-template-columns: 1.15fr 1.55fr 1.25fr;
+  gap: 12px;
+  align-items: stretch;
+  height: clamp(520px, 62vh, 720px);
+  min-height: 0; /* важно: даём детям grid сжиматься */
+}
+.main3 .box{
+  min-width: 0;          /* важно для grid, чтобы не раздувало колонки */
+  flex: 0 0 auto;        /* отключаем старый flex:1, он тут не нужен */
+  display:flex;
+  flex-direction:column;
+  min-height: 0;         /* критично для внутренней прокрутки */
+  height: 100%;
+}
+.boxContent{
+  flex:1;
+  overflow:auto;
+  /* Важно для flex/grid: иначе содержимое может "выталкивать" высоту и перекрывать соседние блоки */
+  min-height: 0;
+  padding-right: 4px;
+}
+/* Список каналов должен занимать доступную высоту и скроллиться внутри */
+.listContent{
+  display:flex;
+  flex:1;
+  flex-direction:column;
+  min-height:0;
+}
+.chanList{ min-height: 0; }
+
+/* Чтобы у списка каналов была одна прокрутка (внутри списка), без второй прокрутки у boxContent */
+.listBox .boxContent{ overflow:hidden; }
 
 .plotPanel { margin-top: 12px; background:#fff; padding: 10px; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
 .plot { width: 100%; height: 620px; }
@@ -24,8 +67,27 @@ button { padding: 7px 12px; cursor:pointer; }
 .plotTitle { font-weight: bold; margin: 4px 0 2px 4px; }
 .plotSub { color:#666; font-size: 12px; margin: 0 0 8px 4px; }
 
-.chanToolbar { display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
-.chanList { list-style: none; padding: 0; margin: 0; max-height: 280px; overflow:auto; border:1px solid #e5e5e5; border-radius: 10px; background:#fff; }
+.chanToolbar{display:flex;flex-direction:column;gap:10px;margin-bottom:10px;}
+
+.btnRow2{display:flex;gap:8px;}
+.btnRow2 button{flex:1;width:100%;}
+
+.sortRow{display:flex;gap:8px;align-items:center;}
+.sortRow label{min-width:90px;}
+.sortRow select{flex:1;min-width:0;width:100%;padding:6px 8px;border-radius:8px;border:1px solid #ddd;}
+
+.chanList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  flex: 1 1 auto;
+  height: auto;
+  max-height: none;
+  overflow: auto;
+  border:1px solid #e5e5e5;
+  border-radius: 10px;
+  background:#fff;
+}
 .chanItem { display:flex; align-items:center; gap:10px; padding: 6px 8px; border-bottom: 1px solid #f0f0f0; }
 .chanItem:last-child { border-bottom: none; }
 .chanItem:hover { background:#fafafa; }
@@ -43,13 +105,25 @@ button { padding: 7px 12px; cursor:pointer; }
 .sortBox { margin-left: auto; display:flex; gap:6px; align-items:center; }
 .sortBox select { padding: 4px 6px; border-radius: 8px; border:1px solid #ddd; }
 
-.orderToolbar { display:flex; gap:8px; margin: 6px 0 8px 0; flex-wrap:wrap; align-items:center; }
-#orderName { flex: 1; min-width: 180px; padding: 6px 8px; }
-#orderSelect { min-width: 220px; padding: 6px 8px; border-radius: 8px; border:1px solid #ddd; }
+.orderToolbar{display:flex;flex-direction:column;gap:8px;margin:6px 0 10px 0;}
+.orderToolbar .rowLine{display:flex;gap:8px;align-items:center;}
+.orderToolbar .rowLine > *{min-width:0;}
+.orderToolbar .rowLine input{flex:1;}
+.orderToolbar .rowLine select{flex:1;width:100%;}
 
-.presetToolbar { display:flex; gap:8px; margin: 6px 0 6px 0; flex-wrap:wrap; align-items:center; }
+#orderName { flex: 1; min-width: 180px; padding: 6px 8px; }
+#orderSelect{width:100%;padding:6px 8px;border-radius:8px;border:1px solid #ddd;}
+
+.presetToolbar{display:flex;flex-direction:column;gap:8px;margin:6px 0 6px 0;}
+.presetToolbar .rowLine{display:flex;gap:8px;align-items:center;}
+.presetToolbar .rowLine > *{min-width:0;}
+.presetToolbar .rowLine input{flex:1;}
+.presetToolbar .rowLine select{flex:1;width:100%;}
+.btnRow3{display:flex;gap:8px;}
+.btnRow3 button{flex:1;width:100%;}
+
 #presetName { flex: 1; min-width: 220px; padding: 6px 8px; }
-#presetSelect { min-width: 220px; padding: 6px 8px; border-radius: 8px; border:1px solid #ddd; }
+#presetSelect{width:100%;padding:6px 8px;border-radius:8px;border:1px solid #ddd;}
 
 /* Template export button */
 #btnTpl { white-space: nowrap; }
@@ -66,55 +140,47 @@ button { padding: 7px 12px; cursor:pointer; }
 .stylePanel{margin-top:10px;padding:10px;border:1px dashed #ddd;border-radius:10px;background:#fff;}
 .styleTitle{font-weight:bold;margin-bottom:6px;}
 .mini{font-size:11px;opacity:.85;}
-.scaleGrid{
-  display:flex;
-  flex-direction:column;
-  gap:6px;
-  margin-top:6px;
-  /* держим W/X/Y в одну строку, а при узком окне даём горизонтальную прокрутку */
-  overflow-x:auto;
-  padding-bottom:2px;
-}
+.scaleGrid{display:flex;flex-direction:column;gap:8px;margin-top:6px;overflow-x:hidden;}
 
-/* Компактный ряд W/X/Y (одна строка) */
 .scaleRow{
-  display:flex;
+  display:grid;
+  grid-template-columns: 16px minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
   align-items:center;
-  gap:10px;
-  flex-wrap:nowrap;
-  white-space:nowrap;
 }
 
 .scaleName{font-weight:bold;min-width:14px;}
 
 .scaleGroup{
-  display:flex;
+  display:grid;
+  grid-template-columns: 22px minmax(0, 1fr) 30px;
   align-items:center;
-  gap:4px;
-  flex:0 0 auto;
+  gap: 4px;
+  min-width: 0;
 }
 
 .sgLabel{
-  width:24px;
+  width:22px;
   text-align:right;
-  font-size:12px;
+  font-size:11px;
   opacity:.85;
 }
 
 .scaleGroup input[type=number]{
-  width:75px;
-  padding:3px 5px;
-  font-size:12px;
+  width: 100%;
+  min-width: 0;
+  padding:2px 4px;
+  font-size:11px;
   box-sizing:border-box;
   position:relative;
   z-index:1;
 }
 #rmColor{width:44px;height:28px;padding:0;border:1px solid #ddd;border-radius:6px;}
-#rmIntensity{min-width:180px;}
+#rmIntensity{width:100%;}
 
 .scaleGroup input[type=color]{
-  width:34px;
-  height:24px;
+  width:30px;
+  height:22px;
   padding:0;
   border:1px solid #ddd;
   border-radius:6px;
@@ -198,7 +264,7 @@ button { padding: 7px 12px; cursor:pointer; }
 .overlay.hidden{display:none;}
 .overlayBox{background:#fff;border-radius:12px;box-shadow:0 6px 22px rgba(0,0,0,.2);padding:18px 18px 14px 18px;min-width:260px;max-width:480px;display:flex;gap:12px;align-items:center;}
 .overlayText{font-size:13px;color:#333;line-height:1.35;}
-.spinnerLarge{width:20px;height:20px;border:3px solid #bbb;border-top-color:#333;border-radius:50%;animation:spin .8s linear infinite;flex:0 0 auto;}
+.spinnerLarge{width:20px;height:20px;border:3px solid #bbb;border-top-color:#333;border-radius:50%;animation:spin .8s linear infinite;flex:1 1 150px;}
 
 /* Toasts */
 .toastContainer{position:fixed;right:16px;top:16px;display:flex;flex-direction:column;gap:8px;z-index:10000;}
@@ -277,3 +343,10 @@ button { padding: 7px 12px; cursor:pointer; }
 
 /* Align label + unit badge */
 .chanLabel{ flex:1; }
+
+.exportBtnRow{display:flex;gap:8px;margin:6px 0;}
+.exportBtnRow button{flex:1;width:100%;}
+.exportOptRow{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:6px 0;}
+
+.controlsBox .boxContent{overflow-x:hidden;}
+.exportBox .boxContent{overflow-x:hidden;}
