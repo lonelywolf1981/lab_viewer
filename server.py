@@ -583,6 +583,40 @@ def api_series():
     # ДО СЮДА ⬆️
 
 
+@app.route("/api/range_stats", methods=["GET"])
+def api_range_stats():
+    """Return number of raw points within [start_ms..end_ms].
+
+    Used by UI for accurate auto-step and export info.
+    """
+    if not STATE.get("loaded"):
+        return jsonify({"ok": False, "error": "Данные не загружены"}), 400
+
+    t_list = STATE.get("t_list") or []
+    if not t_list:
+        return jsonify({"ok": True, "points": 0, "total": 0})
+
+    try:
+        start_ms = int(float(request.args.get("start_ms", t_list[0])))
+        end_ms = int(float(request.args.get("end_ms", t_list[-1])))
+    except Exception:
+        start_ms = t_list[0]
+        end_ms = t_list[-1]
+
+    if start_ms > end_ms:
+        start_ms, end_ms = end_ms, start_ms
+
+    i0, i1 = _slice_by_time(t_list, start_ms, end_ms)
+    pts = max(0, i1 - i0)
+    return jsonify({
+        "ok": True,
+        "start_ms": start_ms,
+        "end_ms": end_ms,
+        "points": pts,
+        "total": len(t_list),
+    })
+
+
 @app.route("/api/save_order", methods=["POST"])
 def api_save_order():
     body = request.get_json(force=True, silent=True) or {}
@@ -1091,7 +1125,16 @@ def _api_export_template_impl():
     # Иначе (если channels не передан) сохраняем старое поведение: выгрузить всё.
     candidate_codes = [c for c in selected_list if c in cols] if selected_list else list(cols)
 
+    # Whether to include extra channels (Z..). UI may send include_extra=0.
+    try:
+        include_extra = int(str(request.args.get("include_extra", "1")).strip() or "1")
+    except Exception:
+        include_extra = 1
+
     extra_codes = [c for c in candidate_codes if c and c not in fixed_codes]
+
+    if include_extra <= 0:
+        extra_codes = []
 
     def _nat_key(s: str):
         import re as _re

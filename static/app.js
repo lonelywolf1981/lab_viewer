@@ -187,6 +187,21 @@ function updateSelectedCountUI() {
 // Сохраняем последний выбор каналов + основные настройки UI локально в браузере,
 // чтобы после перезапуска/обновления можно было быстро продолжить.
 const LS_LAST_STATE_KEY = 'lemure_last_state_v1';
+const LS_VIEW_OPTS_KEY = 'lemure_view_opts_v1';
+const LS_RECENT_FOLDERS_KEY = 'lemure_recent_folders_v1';
+
+let VIEW_COMPACT = false;
+let VIEW_GROUPS = false;
+let COLLAPSED_GROUPS = new Set();
+
+let RECENT_FOLDERS = [];
+const RECENT_MAX = 10;
+
+// Range stats cache (точное число точек в текущем диапазоне)
+let RANGE_STATS = null;
+let _rangeStatsTimer = null;
+let _rangeStatsToken = 0;
+
 let _lastStateTimer = null;
 
 function _collectLastState() {
@@ -254,6 +269,242 @@ function applyLastStateIfAny() {
   }
 }
 
+// ===== Stage 3: view modes, recent folders, range stats, export info =====
+
+function _safeJsonParse(raw, defv) {
+  try { return JSON.parse(raw); } catch(e) { return defv; }
+}
+
+function loadViewOpts() {
+  try {
+    const raw = localStorage.getItem(LS_VIEW_OPTS_KEY);
+    const st = raw ? _safeJsonParse(raw, null) : null;
+    const compact = !!(st && st.compact);
+    const groups  = !!(st && st.groups);
+    const collapsed = (st && st.collapsed_groups && typeof st.collapsed_groups === 'object') ? st.collapsed_groups : {};
+
+    VIEW_COMPACT = compact;
+    VIEW_GROUPS  = groups;
+    COLLAPSED_GROUPS = new Set(Object.keys(collapsed).filter(k => collapsed[k]));
+
+    if(el('viewCompact')) el('viewCompact').checked = VIEW_COMPACT;
+    if(el('viewGroups')) el('viewGroups').checked = VIEW_GROUPS;
+  } catch(e) {}
+}
+
+function saveViewOpts() {
+  try {
+    const collapsed = {};
+    (COLLAPSED_GROUPS || new Set()).forEach(k => { collapsed[String(k)] = true; });
+    const st = { compact: !!VIEW_COMPACT, groups: !!VIEW_GROUPS, collapsed_groups: collapsed };
+    localStorage.setItem(LS_VIEW_OPTS_KEY, JSON.stringify(st));
+  } catch(e) {}
+}
+
+function syncViewOptsFromUI(save=false) {
+  try {
+    const vc = el('viewCompact');
+    const vg = el('viewGroups');
+    if(vc) VIEW_COMPACT = !!vc.checked;
+    if(vg) VIEW_GROUPS  = !!vg.checked;
+    if(save) saveViewOpts();
+  } catch(e) {}
+}
+
+function applyViewClasses() {
+  const list = el('channelList');
+  if(!list) return;
+  list.classList.toggle('compact', !!VIEW_COMPACT);
+}
+
+function groupOfCode(code) {
+  const s = String(code || '');
+  const i = s.indexOf('-');
+  if(i > 0) return s.slice(0, i);
+  return 'Другие';
+}
+
+function toggleGroupCollapsed(groupKey) {
+  const k = String(groupKey);
+  if(COLLAPSED_GROUPS.has(k)) COLLAPSED_GROUPS.delete(k);
+  else COLLAPSED_GROUPS.add(k);
+  saveViewOpts();
+
+  const list = el('channelList');
+  if(!list) return;
+  // update items visibility
+  list.querySelectorAll(`.chanItem[data-group="${CSS.escape(k)}"]`).forEach(li => {
+    li.classList.toggle('groupHidden', COLLAPSED_GROUPS.has(k));
+  });
+  // update caret
+  const hdr = list.querySelector(`.chanGroupHeader[data-group="${CSS.escape(k)}"]`);
+  if(hdr) {
+    const c = hdr.querySelector('.chanGroupCaret');
+    if(c) c.textContent = COLLAPSED_GROUPS.has(k) ? '▶' : '▼';
+  }
+}
+
+// ---- Recent folders ----
+function loadRecentFolders() {
+  try {
+    const raw = localStorage.getItem(LS_RECENT_FOLDERS_KEY);
+    const arr = raw ? _safeJsonParse(raw, []) : [];
+    if(Array.isArray(arr)) RECENT_FOLDERS = arr.map(x=>String(x)).filter(Boolean);
+    else RECENT_FOLDERS = [];
+  } catch(e) { RECENT_FOLDERS = []; }
+}
+
+function saveRecentFolders() {
+  try { localStorage.setItem(LS_RECENT_FOLDERS_KEY, JSON.stringify(RECENT_FOLDERS || [])); } catch(e) {}
+}
+
+function refreshRecentFoldersUI() {
+  const sel = el('recentFolders');
+  if(!sel) return;
+  sel.innerHTML = '';
+
+  const opt0 = document.createElement('option');
+  opt0.value = '';
+  opt0.textContent = (RECENT_FOLDERS && RECENT_FOLDERS.length) ? '— недавние —' : '— нет недавних —';
+  sel.appendChild(opt0);
+
+  (RECENT_FOLDERS || []).forEach(path => {
+    const o = document.createElement('option');
+    o.value = path;
+    o.textContent = path;
+    sel.appendChild(o);
+  });
+}
+
+function addRecentFolder(path) {
+  const pth = String(path || '').trim();
+  if(!pth) return;
+  const arr = (RECENT_FOLDERS || []).filter(x => x && x !== pth);
+  arr.unshift(pth);
+  RECENT_FOLDERS = arr.slice(0, RECENT_MAX);
+  saveRecentFolders();
+  refreshRecentFoldersUI();
+}
+
+function clearRecentFolders() {
+  RECENT_FOLDERS = [];
+  saveRecentFolders();
+  refreshRecentFoldersUI();
+  toast('Недавние очищены', 'Список недавних папок очищен', 'ok');
+}
+
+async function copyTextToClipboard(txt) {
+  try {
+    if(navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(txt);
+      return true;
+    }
+  } catch(e) {}
+  // fallback
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = txt;
+    ta.style.position = 'fixed';
+    ta.style.left = '-2000px';
+    ta.style.top = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return !!ok;
+  } catch(e) {}
+  return false;
+}
+
+async function copyFolderPath() {
+  const fld = el('folder');
+  const v = fld ? String(fld.value || '').trim() : '';
+  if(!v) { toast('Путь пуст', 'Сначала укажи папку', 'warn'); return; }
+  const ok = await copyTextToClipboard(v);
+  if(ok) toast('Скопировано', 'Путь скопирован в буфер обмена', 'ok');
+  else toast('Не удалось', 'Не получилось скопировать путь', 'warn');
+}
+
+// ---- Range stats + export info ----
+function getEffectiveRange() {
+  if(!SUMMARY) return null;
+  const vr = getVisibleRangeFromPlot();
+  if(vr && vr.length === 2) return [Math.min(vr[0], vr[1]), Math.max(vr[0], vr[1])];
+  if(currentRange && currentRange.length === 2) return [Math.min(currentRange[0], currentRange[1]), Math.max(currentRange[0], currentRange[1])];
+  return [SUMMARY.start_ms, SUMMARY.end_ms];
+}
+
+function estimatePointsForRange(r) {
+  if(!SUMMARY || !SUMMARY.points) return 1;
+  const totalDur = Math.max(1, (SUMMARY.end_ms - SUMMARY.start_ms));
+  const rangeDur = Math.max(1, (r[1] - r[0]));
+  return Math.max(1, Math.round(SUMMARY.points * (rangeDur / totalDur)));
+}
+
+function requestRangeStatsDebounced() {
+  if(!_rangeStatsTimer) {
+    // no-op
+  } else {
+    try { clearTimeout(_rangeStatsTimer); } catch(e) {}
+  }
+  const r = getEffectiveRange();
+  if(!r) return;
+  _rangeStatsTimer = setTimeout(() => _fetchRangeStatsNow(r), 250);
+}
+
+function _fetchRangeStatsNow(r) {
+  if(!LOADED || !SUMMARY) return;
+  const token = ++_rangeStatsToken;
+  const qs = new URLSearchParams();
+  qs.set('start_ms', String(r[0]));
+  qs.set('end_ms', String(r[1]));
+  fetch('/api/range_stats?' + qs.toString())
+    .then(resp => resp.json())
+    .then(j => {
+      if(token != _rangeStatsToken) return;
+      if(j && j.ok) {
+        RANGE_STATS = { start_ms: j.start_ms, end_ms: j.end_ms, points: j.points, total: j.total };
+      }
+    })
+    .catch(_=>{})
+    .finally(() => {
+      updateStepUI();
+      updateExportInfo();
+    });
+}
+
+function updateExportInfo() {
+  const box = el('exportInfo');
+  if(!box || !SUMMARY) return;
+
+  const codes = getSelectedCodes();
+  const range = getEffectiveRange() || [SUMMARY.start_ms, SUMMARY.end_ms];
+
+  let pts = null;
+  if(RANGE_STATS && RANGE_STATS.start_ms === range[0] && RANGE_STATS.end_ms === range[1]) pts = RANGE_STATS.points;
+  if(pts == null) pts = estimatePointsForRange(range);
+
+  const auto = !!(el('stepAuto') && el('stepAuto').checked);
+  const step = auto ? computeAutoStep() : (parseInt(el('step')?.value || '1', 10) || 1);
+  const after = Math.max(1, Math.ceil(pts / Math.max(1, step)));
+
+  const extra = !!(el('tplExtra') && el('tplExtra').checked);
+
+  // Сделаем компактно и читабельно
+  box.innerHTML =
+    `Каналы: <b>${codes.length}</b> &nbsp;•&nbsp; ` +
+    `Точек в диапазоне: <b>${pts}</b> &nbsp;•&nbsp; ` +
+    `После шага: <b>${after}</b> &nbsp;•&nbsp; ` +
+    `Шаг: <b>${Math.max(1, step)}</b> <span class="mini">(${auto ? 'авто' : 'вручную'})</span> &nbsp;•&nbsp; ` +
+    `Z: <b>${extra ? 'да' : 'нет'}</b>`;
+}
+
+function onRangeChanged() {
+  requestRangeStatsDebounced();
+  updateExportInfo();
+}
+
 function clearFilters() {
   FILTER_TEXT = '';
   FILTER_ONLY_SELECTED = false;
@@ -276,18 +527,14 @@ function getStepTarget() {
 function computeAutoStep() {
   if(!SUMMARY || !SUMMARY.points) return 1;
   const target = getStepTarget();
-  // Стараемся подобрать шаг под текущий диапазон (если график уже зумирован).
-  let r = null;
-  const vr = getVisibleRangeFromPlot();
-  if(vr && vr.length === 2) r = [Math.min(vr[0], vr[1]), Math.max(vr[0], vr[1])];
-  else if(currentRange && currentRange.length === 2) r = [Math.min(currentRange[0], currentRange[1]), Math.max(currentRange[0], currentRange[1])];
-  else r = [SUMMARY.start_ms, SUMMARY.end_ms];
 
-  const totalDur = Math.max(1, (SUMMARY.end_ms - SUMMARY.start_ms));
-  const rangeDur = Math.max(1, (r[1] - r[0]));
-  // Оценка числа точек в диапазоне (пропорцией по времени). Это приближение, но для авто-шага хватает.
-  const estPoints = Math.max(1, Math.round(SUMMARY.points * (rangeDur / totalDur)));
-  const step = Math.ceil(estPoints / target);
+  const r = getEffectiveRange() || [SUMMARY.start_ms, SUMMARY.end_ms];
+
+  let pts = null;
+  if(RANGE_STATS && RANGE_STATS.start_ms === r[0] && RANGE_STATS.end_ms === r[1]) pts = RANGE_STATS.points;
+  if(pts == null) pts = estimatePointsForRange(r);
+
+  const step = Math.ceil(Math.max(1, pts) / target);
   return Math.max(1, step);
 }
 
@@ -298,28 +545,28 @@ function updateStepUI() {
   if(!cb || !inp) return;
   const auto = cb.checked;
   inp.disabled = auto;
+
   if(info) {
     if(!auto) {
       info.textContent = '';
     } else {
       const st = computeAutoStep();
-      // приблизительно сколько точек останется после прореживания
+      const r = getEffectiveRange() || (SUMMARY ? [SUMMARY.start_ms, SUMMARY.end_ms] : null);
+      let pts = null;
+      if(r && RANGE_STATS && RANGE_STATS.start_ms === r[0] && RANGE_STATS.end_ms === r[1]) pts = RANGE_STATS.points;
+      if(r && pts == null) pts = estimatePointsForRange(r);
+
       let estAfter = '';
-      if(SUMMARY && SUMMARY.points) {
-        let r = null;
-        const vr = getVisibleRangeFromPlot();
-        if(vr && vr.length === 2) r = [Math.min(vr[0], vr[1]), Math.max(vr[0], vr[1])];
-        else if(currentRange && currentRange.length === 2) r = [Math.min(currentRange[0], currentRange[1]), Math.max(currentRange[0], currentRange[1])];
-        else r = [SUMMARY.start_ms, SUMMARY.end_ms];
-        const totalDur = Math.max(1, (SUMMARY.end_ms - SUMMARY.start_ms));
-        const rangeDur = Math.max(1, (r[1] - r[0]));
-        const estPoints = Math.max(1, Math.round(SUMMARY.points * (rangeDur / totalDur)));
-        const estLeft = Math.max(1, Math.ceil(estPoints / st));
-        estAfter = `, ~${estLeft} точек`;
+      if(pts != null) {
+        const left = Math.max(1, Math.ceil(Math.max(1, pts) / Math.max(1, st)));
+        const exact = (RANGE_STATS && r && RANGE_STATS.start_ms === r[0] && RANGE_STATS.end_ms === r[1]);
+        estAfter = `, ${left} точек${exact ? '' : ' ~'}`;
       }
       info.textContent = `(шаг: ${st}${estAfter})`;
     }
   }
+
+  updateExportInfo();
 }
 
 function getShowLegend() {
@@ -351,6 +598,7 @@ function updateRangeText() {
     ? [Math.min(currentRange[0], currentRange[1]), Math.max(currentRange[0], currentRange[1])]
     : null;
   el("rangeText").textContent = r ? fmtRange(r) : "—";
+  onRangeChanged();
 }
 
 
@@ -493,6 +741,7 @@ function refreshSelectionUI() {
     li.setAttribute("aria-selected", selected.has(code) ? "true" : "false");
   });
   updateSelectedCountUI();
+  updateExportInfo();
 }
 
 function selectAll() {
@@ -555,23 +804,68 @@ function onItemDblClick(ev, code) {
 
 function renderChannelList(arr, keepSelection=true, pruneSelection=true) {
   const list = el("channelList");
+  if(!list) return;
   list.innerHTML = "";
   list.setAttribute("role", "listbox");
   list.setAttribute("aria-multiselectable", "true");
 
-  const canDrag = !hasActiveFilter();
+  applyViewClasses();
+
+  const canDrag = !hasActiveFilter() && !VIEW_GROUPS;
 
   // Keep selection intersection
   const prev = new Set(selected);
 
   CHANNELS_VIEW = arr.slice();
 
+  // group counts (for headers)
+  const groupCounts = {};
+  if(VIEW_GROUPS) {
+    arr.forEach(ch => {
+      const g = groupOfCode(ch.code);
+      groupCounts[g] = (groupCounts[g] || 0) + 1;
+    });
+  }
+
+  let lastGroup = null;
+
   arr.forEach((ch) => {
+    const grp = groupOfCode(ch.code);
+
+    if(VIEW_GROUPS && grp !== lastGroup) {
+      lastGroup = grp;
+      const hdr = document.createElement('li');
+      hdr.className = 'chanGroupHeader';
+      hdr.setAttribute('data-group', grp);
+
+      const caret = document.createElement('div');
+      caret.className = 'chanGroupCaret';
+      caret.textContent = COLLAPSED_GROUPS.has(grp) ? '▶' : '▼';
+      hdr.appendChild(caret);
+
+      const title = document.createElement('div');
+      title.className = 'chanGroupTitle';
+      title.textContent = grp;
+      hdr.appendChild(title);
+
+      const cnt = document.createElement('div');
+      cnt.className = 'chanGroupCount';
+      cnt.textContent = String(groupCounts[grp] || 0);
+      hdr.appendChild(cnt);
+
+      hdr.addEventListener('click', () => toggleGroupCollapsed(grp));
+
+      list.appendChild(hdr);
+    }
+
     const li = document.createElement("li");
     li.className = "chanItem";
     li.setAttribute("draggable", "false");
     li.setAttribute("data-code", ch.code);
+    li.setAttribute("data-group", grp);
     li.setAttribute("role", "option");
+
+    if(VIEW_GROUPS && COLLAPSED_GROUPS.has(grp)) li.classList.add('groupHidden');
 
     // Drag handle: draggable only here
     const handle = document.createElement("div");
@@ -581,7 +875,8 @@ function renderChannelList(arr, keepSelection=true, pruneSelection=true) {
       handle.title = "Перетащить";
       handle.setAttribute("draggable", "true");
     } else {
-      handle.title = "Перетаскивание недоступно при включённых фильтрах";
+      const why = VIEW_GROUPS ? 'Перетаскивание недоступно в режиме «группы»' : 'Перетаскивание недоступно при включённых фильтрах';
+      handle.title = why;
       handle.setAttribute("draggable", "false");
       handle.classList.add("dragDisabled");
     }
@@ -600,6 +895,13 @@ function renderChannelList(arr, keepSelection=true, pruneSelection=true) {
     lab.textContent = ch.label;
     li.appendChild(lab);
 
+    if(ch.unit) {
+      const ub = document.createElement('div');
+      ub.className = 'chanUnitBadge';
+      ub.textContent = ch.unit;
+      li.appendChild(ub);
+    }
+
     // Selection clicks on row
     li.addEventListener("click", (ev) => onItemClick(ev, ch.code));
     li.addEventListener("dblclick", (ev) => onItemDblClick(ev, ch.code));
@@ -608,7 +910,8 @@ function renderChannelList(arr, keepSelection=true, pruneSelection=true) {
     handle.addEventListener("dragstart", (ev) => {
       if(!canDrag) {
         ev.preventDefault();
-        toast('Перетаскивание отключено', 'Снимите фильтры (поиск/чипы/только выбранные) и попробуйте снова', 'warn', 5000);
+        if(VIEW_GROUPS) toast('Перетаскивание отключено', 'Отключите режим «группы» и попробуйте снова', 'warn', 5000);
+        else toast('Перетаскивание отключено', 'Снимите фильтры (поиск/чипы/только выбранные) и попробуйте снова', 'warn', 5000);
         return;
       }
       li.classList.add("dragging");
@@ -997,6 +1300,9 @@ function deletePreset() {
 }
 
 function applySortAndRender(keepSelection=true, doRedraw=true) {
+  syncViewOptsFromUI(false);
+  applyViewClasses();
+
   // Сначала строим полный порядок (сортировка), потом применяем фильтры только для отображения.
   const base = buildViewOrder();
   CHANNELS_VIEW_ALL = base.slice();
@@ -1035,6 +1341,9 @@ function loadTest() {
     }
     LOADED = true;
 
+    RANGE_STATS = null;
+    _rangeStatsToken++;
+
     CHANNELS_FILE = j.channels || [];
     SAVED_ORDER = j.saved_order || [];
 
@@ -1060,6 +1369,10 @@ function loadTest() {
 
     // Попробуем восстановить последний выбор (localStorage)
     applyLastStateIfAny();
+
+    // Stage 3: недавние папки
+    addRecentFolder(j.folder || folder);
+    updateExportInfo();
 
     log("Loaded: " + (j.folder || folder));
     toast('Тест загружен', `Каналов: ${CHANNELS_FILE.length}, точек: ${SUMMARY ? SUMMARY.points : '—'}`, 'ok');
@@ -1364,14 +1677,17 @@ function exportTemplate() {
 
   const btn = el("btnTpl");
   const st  = el("tplStatus");
+
+  const includeExtra = (el('tplExtra') && el('tplExtra').checked) ? 1 : 0;
   if(btn) { btn.disabled = true; btn.textContent = "Готовлю шаблон…"; }
-  if(st)  { st.innerHTML = `<span class="spinner"></span>Формирую Excel… <span style="opacity:.85">(каналы: ${codes.length}, диапазон: ${new Date(start_ms).toLocaleString()} → ${new Date(end_ms).toLocaleString()})</span>`; }
+  if(st)  { st.innerHTML = `<span class="spinner"></span>Формирую Excel… <span style="opacity:.85">(каналы: ${codes.length}, диапазон: ${new Date(start_ms).toLocaleString()} → ${new Date(end_ms).toLocaleString()}, Z: ${includeExtra ? 'да' : 'нет'})</span>`; }
 
   const qs = new URLSearchParams();
   qs.set("start_ms", String(start_ms));
   qs.set("end_ms", String(end_ms));
   qs.set("channels", codes.join(","));
   qs.set("step", String(step));
+  qs.set('include_extra', String(includeExtra));
 
   fetch("/api/export_template?" + qs.toString())
     .then(async (r) => {
@@ -1573,6 +1889,40 @@ function wire() {
   if(fld) fld.addEventListener('keydown', (e)=>{
     if(e.key === 'Enter') loadTest();
   });
+
+  // ===== Stage 3: view modes + recent folders + template options =====
+  loadViewOpts();
+  loadRecentFolders();
+  refreshRecentFoldersUI();
+  applyViewClasses();
+
+  const rf = el('recentFolders');
+  if(rf) rf.addEventListener('change', () => {
+    const v = String(rf.value || '').trim();
+    if(v && el('folder')) el('folder').value = v;
+  });
+
+  const bcopy = el('btnCopyFolder');
+  if(bcopy) bcopy.addEventListener('click', copyFolderPath);
+
+  const bclr = el('btnClearRecent');
+  if(bclr) bclr.addEventListener('click', clearRecentFolders);
+
+  const vc = el('viewCompact');
+  if(vc) vc.addEventListener('change', () => {
+    syncViewOptsFromUI(true);
+    applyViewClasses();
+    applySortAndRender(true, false);
+  });
+  const vg = el('viewGroups');
+  if(vg) vg.addEventListener('change', () => {
+    syncViewOptsFromUI(true);
+    applyViewClasses();
+    applySortAndRender(true, false);
+  });
+
+  const te = el('tplExtra');
+  if(te) te.addEventListener('change', () => updateExportInfo());
 
   const bc = el("btnCsv");
   if(bc) bc.addEventListener("click", () => exportData("csv"));

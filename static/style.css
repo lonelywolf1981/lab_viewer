@@ -209,3 +209,71 @@ button { padding: 7px 12px; cursor:pointer; }
 .toast.err{background:#8a1020;}
 .toast .tTitle{font-weight:bold;margin-bottom:4px;}
 .toast .tBody{opacity:.95;}
+
+/* ===== Stage 3: view modes, groups, recent folders, export info ===== */
+
+.recentSel{
+  min-width: 220px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border:1px solid #ddd;
+  background:#fff;
+}
+
+.btnMini{
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.exportInfo{
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 1px solid #cfe1ff;
+  border-radius: 10px;
+  background:#f5f9ff;
+  font-size: 12px;
+  color:#333;
+  line-height: 1.35;
+}
+
+/* Unit badge */
+.chanUnitBadge{
+  display:inline-block;
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border:1px solid #cfe1ff;
+  background:#eef6ff;
+  color:#1f3b6d;
+  white-space:nowrap;
+}
+
+/* Compact view */
+.chanList.compact .chanItem{ padding: 4px 8px; gap: 8px; }
+.chanList.compact .chanCode{ min-width: 62px; font-size: 12px; }
+.chanList.compact .chanLabel{ font-size: 12px; }
+.chanList.compact .dragHandle{ width: 16px; }
+
+/* Group view */
+.chanGroupHeader{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding: 6px 8px;
+  border-bottom: 1px solid #d9e8ff;
+  background:#eaf2ff;
+  border-left: 4px solid #7aa7ff;
+  font-weight:bold;
+  user-select:none;
+  cursor:pointer;
+}
+.chanGroupHeader:hover{ background:#dfeaff; }
+.chanGroupCaret{ width: 18px; text-align:center; color:#555; }
+.chanGroupTitle{ flex:1; }
+.chanGroupCount{ font-weight:normal; opacity:.8; font-size:12px; }
+.chanItem.groupHidden{ display:none; }
+
+
+
+/* Align label + unit badge */
+.chanLabel{ flex:1; }

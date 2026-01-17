@@ -22,6 +22,9 @@
         <input id="folder" type="text" placeholder="Например: C:\\Tests\\...\\Test-05" />
         <button id="btnPick">Обзор…</button>
         <button id="btnLoad">Загрузить</button>
+        <select id="recentFolders" class="recentSel" title="Недавние папки"></select>
+        <button id="btnCopyFolder" type="button" class="btnMini" title="Скопировать путь">Копировать</button>
+        <button id="btnClearRecent" type="button" class="btnMini" title="Очистить недавние">Очистить</button>
       </div>
 
       <div class="row">
@@ -51,6 +54,8 @@
           <div class="filterToolbar">
             <input id="chanSearch" type="text" placeholder="Поиск каналов (код/название/ед.)…" />
             <label class="check"><input id="onlySelected" type="checkbox"/> только выбранные</label>
+            <label class="check"><input id="viewCompact" type="checkbox"/> компактно</label>
+            <label class="check"><input id="viewGroups" type="checkbox"/> группы</label>
             <span id="selCount" class="miniBadge">Выбрано: 0</span>
           </div>
 
@@ -120,8 +125,11 @@
             <button id="btnCsv">Экспорт CSV</button>
             <button id="btnXlsx">Экспорт Excel</button>
             <button id="btnTpl">В шаблон XLSX</button>
+            <label class="check"><input id="tplExtra" type="checkbox"/> доп. каналы (Z…)</label>
             <span id="tplStatus" class="statusText"></span>
           </div>
+
+          <div id="exportInfo" class="exportInfo">—</div>
 
           <div class="row2">
             <div><b>Выбранный интервал:</b> <span id="rangeText">—</span></div>
