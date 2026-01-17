@@ -69,6 +69,7 @@ STATE: Dict[str, Any] = {
 ORDER_FILE = os.path.join(os.path.dirname(__file__), "channel_order.json")
 TEMPLATE_FILE = os.path.join(os.path.dirname(__file__), "template.xlsx")
 ORDERS_DIR = os.path.join(os.path.dirname(__file__), 'saved_orders')
+PRESETS_DIR = os.path.join(os.path.dirname(__file__), 'saved_presets')
 
 # Optional viewer settings (editable without changing code)
 # Настройки влияют на оформление экспорта «В шаблон XLSX».
@@ -293,6 +294,22 @@ def _sanitize_order_key(name: str) -> str:
 def _order_path_by_key(key: str) -> str:
     _ensure_orders_dir()
     return os.path.join(ORDERS_DIR, f'{key}.json')
+
+
+# Presets persistence
+PRESETS_LOCK = threading.Lock()
+
+
+def _ensure_presets_dir() -> None:
+    try:
+        os.makedirs(PRESETS_DIR, exist_ok=True)
+    except Exception:
+        pass
+
+
+def _preset_path_by_key(key: str) -> str:
+    _ensure_presets_dir()
+    return os.path.join(PRESETS_DIR, f'{key}.json')
 
 
 def load_saved_order() -> List[str]:
@@ -677,6 +694,139 @@ def api_orders_load():
                 seen.add(s)
                 out.append(s)
         return jsonify({"ok": True, "key": key, "name": str(data.get('name') or key), "order": out})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/presets_list", methods=["GET"])
+def api_presets_list():
+    """Return list of saved presets."""
+    try:
+        _ensure_presets_dir()
+        items = []
+        for fn in os.listdir(PRESETS_DIR):
+            if not fn.lower().endswith('.json'):
+                continue
+            path = os.path.join(PRESETS_DIR, fn)
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                key = str(data.get('key') or os.path.splitext(fn)[0])
+                name = str(data.get('name') or key)
+                channels = data.get('channels')
+                if not isinstance(channels, list):
+                    channels = (data.get('preset') or {}).get('channels') if isinstance(data.get('preset'),
+                                                                                        dict) else []
+                count = len(channels) if isinstance(channels, list) else 0
+                saved_at = str(data.get('saved_at') or '')
+                items.append({"key": key, "name": name, "count": count, "saved_at": saved_at})
+            except Exception:
+                continue
+        items.sort(key=lambda x: x.get('name', '').lower())
+        return jsonify({"ok": True, "presets": items})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e), "presets": []})
+
+
+@app.route("/api/presets_save", methods=["POST"])
+def api_presets_save():
+    """Save a named preset (channels + settings)."""
+    body = request.get_json(force=True, silent=True) or {}
+    name = str(body.get('name') or '').strip()
+    preset = body.get('preset') if isinstance(body.get('preset'), dict) else {}
+    if not name:
+        return jsonify({"ok": False, "error": "Имя не задано"}), 400
+
+    key = _sanitize_order_key(name)
+    if not key:
+        return jsonify({"ok": False, "error": "Имя некорректное"}), 400
+
+    # Normalize preset structure
+    channels = preset.get('channels')
+    if not isinstance(channels, list):
+        channels = []
+    channels_n = []
+    seen = set()
+    for x in channels:
+        s = str(x)
+        if s and s not in seen:
+            seen.add(s)
+            channels_n.append(s)
+
+    order = preset.get('order')
+    if isinstance(order, list):
+        o2 = []
+        seen2 = set()
+        for x in order:
+            s = str(x)
+            if s and s not in seen2:
+                seen2.add(s)
+                o2.append(s)
+        order = o2
+    else:
+        order = []
+
+    payload = {
+        "name": name,
+        "key": key,
+        "saved_at": dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        "channels": channels_n,
+        "sort_mode": str(preset.get('sort_mode') or ''),
+        "order": order,
+        "step_auto": bool(preset.get('step_auto')) if isinstance(preset.get('step_auto'), bool) else True,
+        "step_target": int(preset.get('step_target') or 5000),
+        "step": int(preset.get('step') or 1),
+        "show_legend": bool(preset.get('show_legend')) if isinstance(preset.get('show_legend'), bool) else True,
+    }
+
+    try:
+        _ensure_presets_dir()
+        path = _preset_path_by_key(key)
+        with PRESETS_LOCK:
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+        return jsonify({"ok": True, "key": key, "count": len(channels_n)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/presets_load", methods=["GET"])
+def api_presets_load():
+    """Load preset by key (or by name)."""
+    key = str(request.args.get('key') or '').strip()
+    name = str(request.args.get('name') or '').strip()
+    if not key and name:
+        key = _sanitize_order_key(name)
+    if not key:
+        return jsonify({"ok": False, "error": "Не задан ключ (key)"}), 400
+
+    try:
+        path = _preset_path_by_key(key)
+        if not os.path.isfile(path):
+            return jsonify({"ok": False, "error": "Сохранённый набор не найден: " + key}), 404
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        # Backward/forward compatibility: return full object, plus 'preset' alias
+        preset = dict(data)
+        preset.pop('ok', None)
+        return jsonify({"ok": True, "key": key, "name": str(data.get('name') or key), "preset": preset})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/presets_delete", methods=["POST"])
+def api_presets_delete():
+    body = request.get_json(force=True, silent=True) or {}
+    key = str(body.get('key') or '').strip()
+    if not key:
+        return jsonify({"ok": False, "error": "Не задан key"}), 400
+    try:
+        path = _preset_path_by_key(key)
+        if not os.path.isfile(path):
+            return jsonify({"ok": False, "error": "Набор не найден: " + key}), 404
+        with PRESETS_LOCK:
+            os.remove(path)
+        return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
@@ -1288,6 +1438,7 @@ def _open_browser():
 if __name__ == "__main__":
     threading.Timer(0.8, _open_browser).start()
     _ensure_orders_dir()
+    _ensure_presets_dir()
     # threaded=False — чтобы tkinter "Обзор..." работал предсказуемо
     # app.run(host=APP_HOST, port=APP_PORT, debug=False, threaded=False)
     app.run(host=APP_HOST, port=APP_PORT, debug=False, threaded=True, use_reloader=False)

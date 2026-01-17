@@ -182,6 +182,78 @@ function updateSelectedCountUI() {
   sp.textContent = `Выбрано: ${total}` + (hasActiveFilter() ? ` (видно: ${vis})` : '');
 }
 
+
+// ===== Last selection (localStorage) =====
+// Сохраняем последний выбор каналов + основные настройки UI локально в браузере,
+// чтобы после перезапуска/обновления можно было быстро продолжить.
+const LS_LAST_STATE_KEY = 'lemure_last_state_v1';
+let _lastStateTimer = null;
+
+function _collectLastState() {
+  try {
+    const stepAuto = el('stepAuto') ? !!el('stepAuto').checked : true;
+    const stepTarget = el('stepTarget') ? parseInt(el('stepTarget').value || '5000', 10) : 5000;
+    const stepManual = el('step') ? parseInt(el('step').value || '1', 10) : 1;
+    const showLegend = el('showLegend') ? !!el('showLegend').checked : true;
+
+    return {
+      v: 1,
+      saved_at: new Date().toISOString(),
+      selected: Array.from(selected || []),
+      step_auto: stepAuto,
+      step_target: (isFinite(stepTarget) && stepTarget > 0) ? stepTarget : 5000,
+      step: (isFinite(stepManual) && stepManual > 0) ? stepManual : 1,
+      show_legend: showLegend,
+    };
+  } catch(e) {
+    return null;
+  }
+}
+
+function saveLastStateNow() {
+  try {
+    if(!LOADED) return;
+    const st = _collectLastState();
+    if(!st) return;
+    localStorage.setItem(LS_LAST_STATE_KEY, JSON.stringify(st));
+  } catch(e) {}
+}
+
+function scheduleSaveLastState() {
+  try {
+    if(_lastStateTimer) clearTimeout(_lastStateTimer);
+    _lastStateTimer = setTimeout(() => saveLastStateNow(), 600);
+  } catch(e) {}
+}
+
+function applyLastStateIfAny() {
+  try {
+    const raw = localStorage.getItem(LS_LAST_STATE_KEY);
+    if(!raw) return false;
+    const st = JSON.parse(raw);
+    if(!st || !Array.isArray(st.selected)) return false;
+
+    const available = new Set((CHANNELS_FILE||[]).map(c => c.code));
+    const sel = (st.selected||[]).map(c => String(c)).filter(c => available.has(c));
+
+    if(el('stepAuto') && typeof st.step_auto === 'boolean') el('stepAuto').checked = st.step_auto;
+    if(el('stepTarget') && st.step_target) el('stepTarget').value = String(parseInt(st.step_target, 10));
+    if(el('step') && st.step) el('step').value = String(parseInt(st.step, 10));
+    if(el('showLegend') && typeof st.show_legend === 'boolean') el('showLegend').checked = st.show_legend;
+
+    updateStepUI();
+
+    if(sel && sel.length) {
+      setSelection(sel);
+      anchorCode = sel[0];
+      scheduleRedraw();
+    }
+    return true;
+  } catch(e) {
+    return false;
+  }
+}
+
 function clearFilters() {
   FILTER_TEXT = '';
   FILTER_ONLY_SELECTED = false;
@@ -604,6 +676,7 @@ function moveCodeBefore(draggedCode, targetCode) {
   // Dragging means "custom" order now
   setSortMode("custom");
   scheduleSaveOrder();
+  scheduleSaveLastState();
 }
 
 function scheduleSaveOrder() {
@@ -725,6 +798,204 @@ function loadNamedOrder() {
     })
     .catch(e=>{ toast('Ошибка загрузки', (e && e.message) ? e.message : String(e), 'err', 6000); log('orders_load error: ' + e); });
 }
+
+// ===== Presets (наборы каналов + настройки) =====
+let PRESETS = []; // [{key,name,count,saved_at}]
+
+function refreshPresets(selectKey=null) {
+  fetch('/api/presets_list')
+    .then(r=>r.json())
+    .then(j=>{
+      if(!j.ok) { log('presets_list error: ' + (j.error||'')); return; }
+      PRESETS = j.presets || [];
+      const sel = el('presetSelect');
+      if(!sel) return;
+      sel.innerHTML = '';
+      const opt0 = document.createElement('option');
+      opt0.value = '';
+      opt0.textContent = PRESETS.length ? '— выбери набор —' : '— нет сохранённых наборов —';
+      sel.appendChild(opt0);
+
+      PRESETS.forEach(p=>{
+        const opt = document.createElement('option');
+        opt.value = p.key;
+        const meta = p.count ? ` (${p.count})` : '';
+        opt.textContent = (p.name || p.key) + meta;
+        if(p.saved_at) opt.title = 'Сохранено: ' + p.saved_at;
+        sel.appendChild(opt);
+      });
+
+      if(selectKey) sel.value = selectKey;
+    })
+    .catch(e=>log('presets_list error: ' + e));
+}
+
+function _collectPresetPayload() {
+  // Важно: сохраняем полный порядок (без учёта фильтров списка), иначе можно «урезать» каналы.
+  const order = (CHANNELS_VIEW_ALL && CHANNELS_VIEW_ALL.length)
+    ? CHANNELS_VIEW_ALL.map(c => c.code)
+    : currentOrderCodes();
+
+  const stepAuto = el('stepAuto') ? !!el('stepAuto').checked : true;
+  const stepTarget = el('stepTarget') ? parseInt(el('stepTarget').value || '5000', 10) : 5000;
+  const stepManual = el('step') ? parseInt(el('step').value || '1', 10) : 1;
+  const showLegend = el('showLegend') ? !!el('showLegend').checked : true;
+
+  return {
+    channels: getSelectedCodes(),
+    sort_mode: getSortMode(),
+    order: order,
+    step_auto: stepAuto,
+    step_target: (isFinite(stepTarget) && stepTarget > 0) ? stepTarget : 5000,
+    step: (isFinite(stepManual) && stepManual > 0) ? stepManual : 1,
+    show_legend: showLegend,
+  };
+}
+
+function savePreset() {
+  if(!CHANNELS_FILE || CHANNELS_FILE.length === 0) {
+    toast('Нет данных', 'Сначала загрузите тест, чтобы были каналы', 'warn');
+    return;
+  }
+
+  let name = (el('presetName') ? el('presetName').value : '').trim();
+  const selKey = el('presetSelect') ? el('presetSelect').value : '';
+  if(!name && selKey) {
+    // если имя не введено — обновим выбранный набор
+    const opt = el('presetSelect').selectedOptions && el('presetSelect').selectedOptions[0];
+    if(opt) name = (opt.textContent || '').replace(/\s*\(\d+\)\s*$/,'').trim();
+  }
+  if(!name) {
+    toast('Имя не указано', 'Введите имя набора или выберите существующий', 'warn');
+    return;
+  }
+
+  const payload = _collectPresetPayload();
+
+  fetch('/api/presets_save', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({name, preset: payload})
+  })
+  .then(r=>r.json())
+  .then(j=>{
+    if(!j.ok) {
+      toast('Ошибка сохранения', j.error || 'Не удалось сохранить набор', 'err', 6000);
+      log('presets_save error: ' + (j.error||''));
+      return;
+    }
+    toast('Набор сохранён', `"${name}"`, 'ok');
+    log(`Preset saved: "${name}" (key=${j.key}, channels=${j.count})`);
+    refreshPresets(j.key);
+    if(el('presetName')) el('presetName').value = name;
+  })
+  .catch(e=>{
+    toast('Ошибка сохранения', (e && e.message) ? e.message : String(e), 'err', 6000);
+    log('presets_save error: ' + e);
+  });
+}
+
+function _applyPresetObject(preset) {
+  if(!preset) return;
+
+  // 1) настройки UI
+  if(el('showLegend') && typeof preset.show_legend === 'boolean') el('showLegend').checked = preset.show_legend;
+  if(el('stepAuto') && typeof preset.step_auto === 'boolean') el('stepAuto').checked = preset.step_auto;
+  if(el('stepTarget') && preset.step_target) el('stepTarget').value = String(parseInt(preset.step_target, 10));
+  if(el('step') && preset.step) el('step').value = String(parseInt(preset.step, 10));
+  updateStepUI();
+
+  // 2) порядок/сортировка
+  if(Array.isArray(preset.order) && preset.order.length) {
+    SAVED_ORDER = preset.order.slice();
+    // Также сохраним как "Мой порядок", чтобы было единообразно (drag + custom).
+    fetch('/api/save_order', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({order: SAVED_ORDER})
+    }).catch(()=>{});
+  }
+
+  if(preset.sort_mode) setSortMode(preset.sort_mode);
+
+  // 3) перерисуем список каналов, затем применим выбор
+  applySortAndRender(false, false);
+
+  const available = new Set((CHANNELS_FILE||[]).map(c => c.code));
+  const sel = (preset.channels || []).map(c => String(c)).filter(c => available.has(c));
+  if(sel.length) {
+    setSelection(sel);
+    anchorCode = sel[0];
+  }
+
+  updateSelectedCountUI();
+  scheduleSaveLastState();
+  scheduleRedraw();
+}
+
+function loadPreset() {
+  if(!CHANNELS_FILE || CHANNELS_FILE.length === 0) {
+    toast('Нет данных', 'Сначала загрузите тест, чтобы были каналы', 'warn');
+    return;
+  }
+  const key = el('presetSelect') ? el('presetSelect').value : '';
+  if(!key) {
+    toast('Не выбран набор', 'Выберите набор из списка', 'warn');
+    return;
+  }
+
+  fetch('/api/presets_load?key=' + encodeURIComponent(key))
+    .then(r=>r.json())
+    .then(j=>{
+      if(!j.ok) {
+        toast('Ошибка загрузки', j.error || 'Не удалось загрузить набор', 'err', 6000);
+        log('presets_load error: ' + (j.error||''));
+        return;
+      }
+      if(el('presetName')) el('presetName').value = j.name || key;
+      _applyPresetObject(j.preset || j);
+      toast('Набор применён', `"${j.name || key}"`, 'ok');
+      log(`Preset loaded: "${j.name || key}"`);
+    })
+    .catch(e=>{
+      toast('Ошибка загрузки', (e && e.message) ? e.message : String(e), 'err', 6000);
+      log('presets_load error: ' + e);
+    });
+}
+
+function deletePreset() {
+  const key = el('presetSelect') ? el('presetSelect').value : '';
+  if(!key) {
+    toast('Не выбран набор', 'Выберите набор из списка', 'warn');
+    return;
+  }
+  const name = (el('presetSelect').selectedOptions && el('presetSelect').selectedOptions[0])
+    ? el('presetSelect').selectedOptions[0].textContent
+    : key;
+  if(!confirm(`Удалить набор "${name}"?`)) return;
+
+  fetch('/api/presets_delete', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({key})
+  })
+  .then(r=>r.json())
+  .then(j=>{
+    if(!j.ok) {
+      toast('Ошибка удаления', j.error || 'Не удалось удалить набор', 'err', 6000);
+      log('presets_delete error: ' + (j.error||''));
+      return;
+    }
+    toast('Набор удалён', name, 'ok');
+    if(el('presetName')) el('presetName').value = '';
+    refreshPresets();
+  })
+  .catch(e=>{
+    toast('Ошибка удаления', (e && e.message) ? e.message : String(e), 'err', 6000);
+    log('presets_delete error: ' + e);
+  });
+}
+
 function applySortAndRender(keepSelection=true, doRedraw=true) {
   // Сначала строим полный порядок (сортировка), потом применяем фильтры только для отображения.
   const base = buildViewOrder();
@@ -786,6 +1057,9 @@ function loadTest() {
     setSortMode("file");
     applySortAndRender(false, false);
     updateStepUI();
+
+    // Попробуем восстановить последний выбор (localStorage)
+    applyLastStateIfAny();
 
     log("Loaded: " + (j.folder || folder));
     toast('Тест загружен', `Каналов: ${CHANNELS_FILE.length}, точек: ${SUMMARY ? SUMMARY.points : '—'}`, 'ok');
@@ -1276,6 +1550,8 @@ function saveStyleSettings() {
 
 function scheduleRedraw() {
   if(redrawTimer) clearTimeout(redrawTimer);
+  // сохраняем последний выбор/настройки, чтобы после перезапуска быстро продолжить
+  scheduleSaveLastState();
   redrawTimer = setTimeout(() => {
     if(LOADED) drawPlot();
   }, 150);
@@ -1392,12 +1668,34 @@ function wire() {
     if(sp) sp.textContent = rint.value;
   });
 
+
+
+  // ===== Presets =====
+  const bpS = el('btnSavePreset');
+  if(bpS) bpS.addEventListener('click', savePreset);
+  const bpL = el('btnLoadPreset');
+  if(bpL) bpL.addEventListener('click', loadPreset);
+  const bpD = el('btnDeletePreset');
+  if(bpD) bpD.addEventListener('click', deletePreset);
+  const bpR = el('btnRefreshPresets');
+  if(bpR) bpR.addEventListener('click', () => refreshPresets());
+
+  const ps = el('presetSelect');
+  if(ps) ps.addEventListener('change', () => {
+    // подставим имя в поле, чтобы удобно было перезаписать
+    const opt = ps.selectedOptions && ps.selectedOptions[0];
+    if(opt && ps.value && el('presetName')) {
+      el('presetName').value = (opt.textContent || '').replace(/\s*\(\d+\)\s*$/,'').trim();
+    }
+  });
+
   // load export styling settings
   loadStyleSettings();
 
 
-  // populate list on startup
+  // populate lists on startup
   refreshNamedOrders();
+  refreshPresets();
 
   // init step UI
   updateStepUI();

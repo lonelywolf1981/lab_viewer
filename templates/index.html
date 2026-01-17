@@ -74,6 +74,17 @@
             <select id="orderSelect" title="Сохранённые порядки"></select>
             <button id="btnLoadNamed" type="button">Загрузить</button>
             <button id="btnRefreshOrders" type="button">Обновить</button>
+
+          <div class="presetToolbar">
+            <input id="presetName" type="text" placeholder="Имя набора (каналы + настройки)…"/>
+            <button id="btnSavePreset" type="button">Сохранить набор</button>
+            <select id="presetSelect" title="Сохранённые наборы"></select>
+            <button id="btnLoadPreset" type="button">Применить</button>
+            <button id="btnDeletePreset" type="button">Удалить</button>
+            <button id="btnRefreshPresets" type="button">Обновить</button>
+          </div>
+          <div class="hint mini">Набор сохраняет: выбранные каналы, шаг, легенду и (при необходимости) порядок/сортировку.</div>
+
           </div>
 
           <ul id="channelList" class="chanList" tabindex="0"></ul>

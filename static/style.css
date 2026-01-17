@@ -47,6 +47,10 @@ button { padding: 7px 12px; cursor:pointer; }
 #orderName { flex: 1; min-width: 180px; padding: 6px 8px; }
 #orderSelect { min-width: 220px; padding: 6px 8px; border-radius: 8px; border:1px solid #ddd; }
 
+.presetToolbar { display:flex; gap:8px; margin: 6px 0 6px 0; flex-wrap:wrap; align-items:center; }
+#presetName { flex: 1; min-width: 220px; padding: 6px 8px; }
+#presetSelect { min-width: 220px; padding: 6px 8px; border-radius: 8px; border:1px solid #ddd; }
+
 /* Template export button */
 #btnTpl { white-space: nowrap; }
 
