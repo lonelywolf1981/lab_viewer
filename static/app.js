@@ -1429,7 +1429,21 @@ function drawPlot() {
   const start_ms = SUMMARY.start_ms;
   const end_ms = SUMMARY.end_ms;
 
-  fetch(`/api/series?channels=${encodeURIComponent(codes.join(","))}&start_ms=${start_ms}&end_ms=${end_ms}&step=${step}`)
+  const qs = new URLSearchParams();
+  qs.set('channels', codes.join(','));
+  qs.set('start_ms', String(start_ms));
+  qs.set('end_ms', String(end_ms));
+
+  // Если включён "Авто шаг" — просим сервер ограничить количество точек.
+  // Это защищает Plotly от зависаний на больших тестах.
+  const isAuto = !!(el('stepAuto') && el('stepAuto').checked);
+  if(isAuto) {
+    qs.set('max_points', String(getStepTarget()));
+  } else {
+    qs.set('step', String(step));
+  }
+
+  fetch(`/api/series?${qs.toString()}`)
     .then(r=>r.json())
     .then(j=>{
       if(!j.ok) {
@@ -1550,7 +1564,7 @@ function drawPlot() {
       if(!currentRange) currentRange = [SUMMARY.start_ms, SUMMARY.end_ms];
       updateRangeText();
 
-      log(`Plot updated: channels=${codes.length}, step=${step}${(el('stepAuto')?.checked ? ' (auto)' : '')}`);
+      log(`Plot updated: channels=${codes.length}, step=${(j && typeof j.step === 'number') ? j.step : step}${(el('stepAuto')?.checked ? ' (auto)' : '')}`);
     })
     .catch(e=>{
       toast('Ошибка графика', (e && e.message) ? e.message : String(e), 'err', 6000);

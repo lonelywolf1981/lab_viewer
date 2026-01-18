@@ -6,7 +6,7 @@ from __future__ import annotations
 import os, re
 from dataclasses import dataclass
 from datetime import datetime, date
-from typing import Dict, List, Tuple, Optional, Any
+from typing import Dict, List, Tuple, Optional, Any, Iterable
 
 
 @dataclass
@@ -168,16 +168,31 @@ def _parse_dbf_value(raw: bytes, f: DbfField):
 #         rows.append(row)
 #
 #     return hdr, rows
-def read_dbf_rows(dbf_path: str) -> Tuple[DbfHeader, List[Dict[str, Any]]]:
-    """Memory-efficient streaming DBF reader."""
+def iter_dbf_rows(dbf_path: str) -> Iterable[Dict[str, Any]]:
+    """Memory-efficient streaming DBF iterator.
+
+    Fixes:
+      - reads full header based on header_len (some DBF have header > 8KB)
+      - streams records one-by-one
+    """
     with open(dbf_path, "rb") as f:
-        header_buf = f.read(8192)
+        head32 = f.read(32)
+        if len(head32) < 32:
+            raise ValueError("DBF слишком короткий")
+
+        header_len = int.from_bytes(head32[8:10], "little", signed=False)
+        if header_len < 32:
+            raise ValueError("Некорректная длина заголовка DBF")
+
+        f.seek(0)
+        header_buf = f.read(header_len)
+        if len(header_buf) < header_len:
+            header_buf = header_buf + (b"\x00" * (header_len - len(header_buf)))
+
         hdr = _read_dbf_header(header_buf)
         f.seek(hdr.header_len)
 
-        rows: List[Dict[str, Any]] = []
         rec_len = hdr.record_len
-
         for _ in range(hdr.records):
             rec = f.read(rec_len)
             if not rec or len(rec) < rec_len:
@@ -191,9 +206,27 @@ def read_dbf_rows(dbf_path: str) -> Tuple[DbfHeader, List[Dict[str, Any]]]:
                 raw = rec[off:off + fdef.length]
                 off += fdef.length
                 row[fdef.name] = _parse_dbf_value(raw, fdef)
-            rows.append(row)
+            yield row
 
-    return hdr, rows
+
+def read_dbf_rows(dbf_path: str) -> Tuple[DbfHeader, List[Dict[str, Any]]]:
+    """Compatibility wrapper: return (header, list(rows))."""
+
+    # Read header once (for callers that expect hdr)
+    with open(dbf_path, "rb") as f:
+        head32 = f.read(32)
+        if len(head32) < 32:
+            raise ValueError("DBF слишком короткий")
+        header_len = int.from_bytes(head32[8:10], "little", signed=False)
+        if header_len < 32:
+            header_len = 32
+        f.seek(0)
+        header_buf = f.read(header_len)
+        if len(header_buf) < header_len:
+            header_buf = header_buf + (b"\x00" * (header_len - len(header_buf)))
+        hdr = _read_dbf_header(header_buf)
+
+    return hdr, list(iter_dbf_rows(dbf_path))
 
 # ------------- Test loader -------------
 
@@ -244,39 +277,54 @@ def load_test(folder: str):
         raise FileNotFoundError("В папке теста нет Prova*.dbf")
     dbfs.sort(key=_dbf_sort_key)
 
-    rows_all: List[Dict[str, Any]] = []
+    data_rows: List[Dict[str, Any]] = []
+    cols_set = set()
+
     for dbf in dbfs:
-        _, rows = read_dbf_rows(dbf)
-        rows_all.extend(rows)
-
-    data_rows = []
-    for r in rows_all:
-        d = r.get("Data")
-        if not isinstance(d, date):
-            continue
-        hh = int(float(r.get("Ore") or 0))
-        mm = int(float(r.get("Minuti") or 0))
-        ss = int(float(r.get("Secondi") or 0))
-        mss = int(float(r.get("mSecondi") or 0))
-        ts = datetime(d.year, d.month, d.day, hh, mm, ss, mss * 1000)
-
-        row2 = {"t_ms": int(ts.timestamp() * 1000)}
-        for k, v in r.items():
-            if k in _TIME_COLS:
+        for r in iter_dbf_rows(dbf):
+            d = r.get("Data")
+            if not isinstance(d, date):
                 continue
-            if v is None:
-                row2[k] = None
-            elif isinstance(v, (int, float)):
-                row2[k] = float(v)
-            else:
-                try:
-                    row2[k] = float(str(v).replace(",", "."))
-                except Exception:
-                    row2[k] = str(v)
-        data_rows.append(row2)
+
+            try:
+                hh = int(float(r.get("Ore") or 0))
+            except Exception:
+                hh = 0
+            try:
+                mm = int(float(r.get("Minuti") or 0))
+            except Exception:
+                mm = 0
+            try:
+                ss = int(float(r.get("Secondi") or 0))
+            except Exception:
+                ss = 0
+            try:
+                mss = int(float(r.get("mSecondi") or 0))
+            except Exception:
+                mss = 0
+
+            ts = datetime(d.year, d.month, d.day, hh, mm, ss, mss * 1000)
+
+            row2: Dict[str, Any] = {"t_ms": int(ts.timestamp() * 1000)}
+            for k, v in r.items():
+                if k in _TIME_COLS:
+                    continue
+                if v is None:
+                    row2[k] = None
+                elif isinstance(v, (int, float)):
+                    row2[k] = float(v)
+                else:
+                    try:
+                        row2[k] = float(str(v).replace(",", "."))
+                    except Exception:
+                        row2[k] = str(v)
+
+            data_rows.append(row2)
+            cols_set.update(row2.keys())
 
     data_rows.sort(key=lambda x: x["t_ms"])
-    cols = sorted({k for r in data_rows for k in r.keys()} - {"t_ms"})
+    cols_set.discard("t_ms")
+    cols = sorted(cols_set)
 
     return {
         "root": root,

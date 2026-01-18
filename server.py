@@ -424,6 +424,12 @@ def index():
     return render_template("index.html", port=APP_PORT, asset_v=asset_v)
 
 
+@app.route("/favicon.ico")
+def favicon():
+    # Avoid 404 spam in run.log
+    return ("", 204)
+
+
 @app.route("/api/settings", methods=["GET", "POST"])
 def api_settings():
     """Get or update viewer settings used for template export formatting.
@@ -483,6 +489,10 @@ def api_load():
     try:
         st = _build_state(folder)
         STATE.update(st)
+        try:
+            _cached_series_slice.cache_clear()
+        except Exception:
+            pass
         data = STATE["data"]
         channels: Dict[str, ChannelInfo] = data["channels"]
         cols = data["cols"]
@@ -507,18 +517,35 @@ def api_load():
         return jsonify({"ok": False, "error": str(e)})
 
 
-@lru_cache(maxsize=32)
+@lru_cache(maxsize=8)
 def _cached_series_slice(data_id: int, channels_key: str, start_ms: int, end_ms: int, step_i: int):
+    """Return (t_ms, series_dict) for the requested channels and time range.
+
+    Cached to speed up repeated redraws with the same parameters.
+    """
     rows = STATE["data"]["rows"]
     t_list = STATE["t_list"]
     channels = [c.strip() for c in channels_key.split(",") if c.strip()]
+
     i0, i1 = _slice_by_time(t_list, start_ms, end_ms)
     sliced = rows[i0:i1:step_i]
+
     t = [r["t_ms"] for r in sliced]
+
+    def _to_float(v):
+        if v is None:
+            return None
+        if isinstance(v, (int, float)):
+            return float(v)
+        try:
+            return float(str(v).replace(",", "."))
+        except Exception:
+            return None
+
     series = {}
     for code in channels:
-        vals = [float(r.get(code)) if r.get(code) is not None else None for r in sliced]
-        series[code] = vals
+        series[code] = [_to_float(r.get(code)) for r in sliced]
+
     return t, series
 
 
@@ -543,44 +570,73 @@ def api_series():
         start_ms = rows[0]["t_ms"]
         end_ms = rows[-1]["t_ms"]
 
+    if start_ms > end_ms:
+        start_ms, end_ms = end_ms, start_ms
+
+    # Manual step (default)
     try:
         step_i = max(1, int(request.args.get("step", "1")))
     except Exception:
         step_i = 1
 
-    # i0, i1 = _slice_by_time(t_list, start_ms, end_ms)
-    # sliced = rows[i0:i1:step_i]
-    # t = [r["t_ms"] for r in sliced]
-    #
-    # series = {}
-    # for code in ch:
-    #     vals = []
-    #     for r in sliced:
-    #         v = r.get(code)
-    #         if v is None:
-    #             vals.append(None)
-    #         else:
-    #             try:
-    #                 vals.append(float(v))
-    #             except Exception:
-    #                 vals.append(None)
-    #     series[code] = vals
-    #
-    # return jsonify({"ok": True, "t_ms": t, "series": series})
-    # ВСТАВИТЬ НОВЫЙ КОД ⬇️
-    channels_key = ",".join(ch)
+    # Auto: ask server to keep around N points
+    max_points = request.args.get("max_points", "")
     try:
-        t_ms, series = _cached_series_slice(
-            id(rows),  # Используется для инвалидации кэша при перезагрузке
-            channels_key,  # Список каналов как строка
-            start_ms,
-            end_ms,
-            step_i
-        )
-        return jsonify({"ok": True, "t_ms": t_ms, "series": series})
+        target = int(float(max_points)) if str(max_points).strip() != "" else 0
+    except Exception:
+        target = 0
+
+    # Determine slice once (also used for cache heuristics)
+    i0, i1 = _slice_by_time(t_list, start_ms, end_ms)
+    raw_pts = max(0, i1 - i0)
+
+    if target and target > 0:
+        # ceil(raw_pts / target)
+        step_i = max(1, (raw_pts + target - 1) // target)
+
+    # Heuristic: avoid caching too large responses (can waste RAM)
+    pts_after = max(0, (raw_pts + step_i - 1) // step_i) if raw_pts > 0 else 0
+    cells = pts_after * len(ch)
+    use_cache = (pts_after <= 40000) and (cells <= 400000)
+
+    channels_key = ",".join(ch)
+
+    try:
+        if use_cache:
+            t_ms, series = _cached_series_slice(
+                id(rows),
+                channels_key,
+                start_ms,
+                end_ms,
+                step_i,
+            )
+        else:
+            # Uncached path for very large payloads
+            sliced = rows[i0:i1:step_i]
+            t_ms = [r["t_ms"] for r in sliced]
+
+            def _to_float(v):
+                if v is None:
+                    return None
+                if isinstance(v, (int, float)):
+                    return float(v)
+                try:
+                    return float(str(v).replace(",", "."))
+                except Exception:
+                    return None
+
+            series = {code: [_to_float(r.get(code)) for r in sliced] for code in ch}
+
+        return jsonify({
+            "ok": True,
+            "t_ms": t_ms,
+            "series": series,
+            "step": step_i,
+            "points": len(t_ms),
+        })
+
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
-    # ДО СЮДА ⬆️
 
 
 @app.route("/api/range_stats", methods=["GET"])
