@@ -1,0 +1,139 @@
+name: Build SFX release (stable)
+
+on:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: write
+
+jobs:
+  build_release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure 7-Zip (with SFX module)
+        shell: powershell
+        run: |
+          if (!(Test-Path "$env:ProgramFiles\7-Zip\7z.exe")) {
+            choco install 7zip -y
+          }
+          if (!(Test-Path "$env:ProgramFiles\7-Zip\7z.sfx")) {
+            throw "7z.sfx not found. 7-Zip may be installed without SFX module."
+          }
+
+      - name: Compute version (MAJOR manual, MINOR auto per commit)
+        id: ver
+        shell: powershell
+        run: |
+          $tags = git tag --list "v*.*.*"
+
+          $versions = @()
+          foreach ($t in $tags) {
+            if ($t -match '^v(\d+)\.(\d+)\.(\d+)$') {
+              $versions += [pscustomobject]@{
+                tag   = $t
+                major = [int]$matches[1]
+                minor = [int]$matches[2]
+                patch = [int]$matches[3]
+              }
+            }
+          }
+
+          if ($versions.Count -eq 0) {
+            # Если тегов ещё нет: стартуем с v1.0.0 на первом коммите, затем v1.1.0 и т.д.
+            $major = 1
+            $minor = ([int](git rev-list --count HEAD)) - 1
+            if ($minor -lt 0) { $minor = 0 }
+          } else {
+            # Берём текущий MAJOR как максимальный среди тегов
+            $major = ($versions | Measure-Object major -Maximum).Maximum
+
+            # Базовый тег для подсчёта MINOR: самый ранний тег этого MAJOR (обычно v<MAJOR>.0.0)
+            $majorTags = $versions | Where-Object { $_.major -eq $major } | Sort-Object minor, patch
+            $base      = $majorTags[0]
+            $baseTag   = $base.tag
+            $baseMinor = [int]$base.minor
+
+            # MINOR = baseMinor + кол-во коммитов после baseTag
+            $commitsSince = [int](git rev-list --count "$baseTag..HEAD")
+            $minor = $baseMinor + $commitsSince
+          }
+
+          $version = "v$major.$minor.0"
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Build .7z and self-extracting .exe
+        shell: powershell
+        run: |
+          $version = "${{ steps.ver.outputs.version }}"
+
+          $sevenZip = "$env:ProgramFiles\7-Zip\7z.exe"
+          $sfx      = "$env:ProgramFiles\7-Zip\7z.sfx"
+
+          $archive = "repo_${version}.7z"
+          $outExe  = "repo_${version}_stable.exe"
+
+          & $sevenZip a -t7z $archive ".\*" "-xr!.git" | Out-Host
+
+          $config = @"
+;!@Install@!UTF-8!
+Title="Repository $version (stable)"
+BeginPrompt="Распаковать файлы релиза $version?"
+ExtractTitle="Распаковка..."
+;!@Install@!UTF-8!
+"@
+          $config | Out-File -Encoding utf8 -FilePath "config.txt"
+
+          cmd /c "copy /b `"$sfx`" + config.txt + `"$archive`" `"$outExe`""
+
+          "OUT_EXE=$outExe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Create/update tags (version + stable)
+        shell: powershell
+        run: |
+          $version = "${{ steps.ver.outputs.version }}"
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Тег версии создаём только если его ещё нет в origin
+          $remote = git ls-remote --tags origin $version
+          if ([string]::IsNullOrWhiteSpace($remote)) {
+            git tag -a $version -m "Release $version (stable)"
+            git push origin $version
+          } else {
+            Write-Host "Tag $version already exists in origin — skipping tag creation."
+          }
+
+          # stable всегда указывает на HEAD
+          git tag -f stable
+          git push origin -f stable
+
+      - name: Create or update GitHub Release (stable)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: powershell
+        run: |
+          $version = "${{ steps.ver.outputs.version }}"
+
+          $exists = $false
+          try { gh release view $version | Out-Null; $exists = $true } catch { }
+
+          if ($exists) {
+            gh release upload $version "$env:OUT_EXE" --clobber
+            gh release edit $version `
+              --title "$version (stable)" `
+              --notes "Авто-стабильный релиз по коммиту $env:GITHUB_SHA. Тег 'stable' указывает на этот релиз." `
+              --latest
+          } else {
+            gh release create $version "$env:OUT_EXE" `
+              --title "$version (stable)" `
+              --notes "Авто-стабильный релиз по коммиту $env:GITHUB_SHA. Тег 'stable' указывает на этот релиз." `
+              --latest
+          }
