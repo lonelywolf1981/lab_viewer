@@ -73,13 +73,16 @@ jobs:
 
           & $sevenZip a -t7z $archive ".\*" "-xr!.git" | Out-Host
 
-          @'
-            ;!@Install@!UTF-8!
-            Title="Repository (stable)"
-            BeginPrompt="Распаковать файлы?"
-            ExtractTitle="Распаковка..."
-            ;!@Install@!UTF-8!
-          '@ | Out-File -Encoding utf8 -FilePath "config.txt"
+          # ВАЖНО: генерируем config без "сырых" строк в YAML
+          $cfg = @(
+            ';!@Install@!UTF-8!'
+            "Title=""Repository $version (stable)"""
+            "BeginPrompt=""Распаковать файлы релиза $version?"""
+            'ExtractTitle="Распаковка..."'
+            ';!@Install@!UTF-8!'
+          ) -join "`r`n"
+
+          Set-Content -Path "config.txt" -Value $cfg -Encoding utf8
 
           cmd /c "copy /b ""$sfx"" + config.txt + ""$archive"" ""$outExe"""
 
@@ -111,13 +114,14 @@ jobs:
         run: |
           $version = "${{ steps.ver.outputs.version }}"
           $notes = "Авто-стабильный релиз по коммиту $env:GITHUB_SHA. Тег stable указывает на этот релиз."
-
-          $exists = $true
-          try { gh release view $version | Out-Null } catch { $exists = $false }
-
+          
+          # Проверяем existence релиза корректно: по коду возврата gh
+          gh release view $version 1>$null 2>$null
+          $exists = ($LASTEXITCODE -eq 0)
+          
           if ($exists) {
             gh release upload $version "$env:OUT_EXE" --clobber
-            gh release edit $version --title "$version (stable)" --notes $notes --latest
+            gh release edit $version --title "$version (stable)" --notes "$notes" --latest
           } else {
-            gh release create $version "$env:OUT_EXE" --title "$version (stable)" --notes $notes --latest
+            gh release create $version "$env:OUT_EXE" --title "$version (stable)" --notes "$notes" --latest
           }
