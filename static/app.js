@@ -1772,6 +1772,167 @@ function _styleStatus(msg, isErr) {
   e.style.color = isErr ? '#b00020' : '#333';
 }
 
+// ---------------- Color picker label (HEX/RGB) ----------------
+// Важно: браузерный pop-up у input[type=color] нельзя заставить всегда показывать HEX.
+// Поэтому показываем подпись под цветом и даём переключатель формата.
+const COLOR_FMT_KEY = 'lemure_color_format';
+
+function _clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+
+function _normHex(s){
+  if(!s) return null;
+  let t = String(s).trim();
+  if(!t) return null;
+  if(t[0] !== '#') t = '#' + t;
+  const m3 = /^#([0-9a-fA-F]{3})$/.exec(t);
+  if(m3){
+    const a = m3[1].split('').map(ch => ch + ch).join('');
+    return ('#' + a).toUpperCase();
+  }
+  const m6 = /^#([0-9a-fA-F]{6})$/.exec(t);
+  if(m6) return ('#' + m6[1]).toUpperCase();
+  return null;
+}
+
+function _hexToRgb(hex){
+  const h = _normHex(hex);
+  if(!h) return null;
+  const n = parseInt(h.slice(1), 16);
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+
+function _rgbToHex(r,g,b){
+  const rr = _clamp(parseInt(r,10), 0, 255);
+  const gg = _clamp(parseInt(g,10), 0, 255);
+  const bb = _clamp(parseInt(b,10), 0, 255);
+  const to2 = (x) => x.toString(16).padStart(2,'0').toUpperCase();
+  return '#' + to2(rr) + to2(gg) + to2(bb);
+}
+
+function _getColorFmt(){
+  const sel = el('colorFormat');
+  return (sel && sel.value) ? sel.value : 'hex';
+}
+
+function _formatColorLabel(hex){
+  const fmt = _getColorFmt();
+  const h = _normHex(hex) || String(hex || '').trim();
+  if(fmt === 'rgb'){
+    const rgb = _hexToRgb(h);
+    if(!rgb) return h;
+    return `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`;
+  }
+  return h;
+}
+
+function _parseColorLabel(txt){
+  const fmt = _getColorFmt();
+  const t = String(txt || '').trim();
+  if(!t) return null;
+  const parseRgb = (str) => {
+    let s = String(str || '').trim().toLowerCase();
+    s = s.replace(/^rgb\(/,'').replace(/\)$/,'');
+    const parts = s.split(/[\s,]+/).filter(Boolean);
+    if(parts.length !== 3) return null;
+    const r = parseInt(parts[0],10);
+    const g = parseInt(parts[1],10);
+    const b = parseInt(parts[2],10);
+    if(!Number.isFinite(r) || !Number.isFinite(g) || !Number.isFinite(b)) return null;
+    return _rgbToHex(r,g,b);
+  };
+
+  if(fmt === 'rgb'){
+    const asRgb = parseRgb(t);
+    if(asRgb) return asRgb;
+    return _normHex(t);
+  }
+
+  // HEX mode
+  const asHex = _normHex(t);
+  if(asHex) return asHex;
+  if(/^rgb\(/i.test(t)) return parseRgb(t);
+  return null;
+}
+
+function refreshColorCodes(){
+  document.querySelectorAll('input[type=color][data-hascode="1"]').forEach(inp => {
+    const sid = inp.getAttribute('data-code-input');
+    const ci = sid ? document.getElementById(sid) : null;
+    if(ci) ci.value = _formatColorLabel(inp.value);
+  });
+}
+
+function initColorCodes(){
+  const sel = el('colorFormat');
+  if(sel){
+    const saved = localStorage.getItem(COLOR_FMT_KEY);
+    if(saved === 'hex' || saved === 'rgb') sel.value = saved;
+    sel.addEventListener('change', () => {
+      localStorage.setItem(COLOR_FMT_KEY, sel.value);
+      refreshColorCodes();
+    });
+  }
+
+  const bind = (colorInp, codeInp) => {
+    const upd = () => { codeInp.value = _formatColorLabel(colorInp.value); };
+    const commit = () => {
+      const parsed = _parseColorLabel(codeInp.value);
+      if(parsed){
+        colorInp.value = parsed;
+        upd();
+      } else {
+        upd();
+        toast('Неверный цвет', 'Используй #RRGGBB или rgb(r,g,b)', 'warn', 3500);
+      }
+    };
+
+    colorInp.addEventListener('input', upd);
+    colorInp.addEventListener('change', upd);
+
+    codeInp.addEventListener('focus', () => { try{ codeInp.select(); } catch(e){} });
+    codeInp.addEventListener('keydown', (e) => {
+      if(e.key === 'Enter'){
+        commit();
+        codeInp.blur();
+      }
+    });
+    codeInp.addEventListener('blur', commit);
+    upd();
+  };
+
+  // 1) Row mark color (rmColor) — поле рядом
+  const rm = el('rmColor');
+  if(rm && rm.getAttribute('data-hascode') !== '1'){
+    const ci = document.createElement('input');
+    ci.type = 'text';
+    ci.className = 'clrCodeInput';
+    ci.id = 'rmColorCode';
+    ci.autocomplete = 'off';
+    ci.spellcheck = false;
+    rm.insertAdjacentElement('afterend', ci);
+    rm.setAttribute('data-hascode', '1');
+    rm.setAttribute('data-code-input', ci.id);
+    bind(rm, ci);
+  }
+
+  // 2) Colors in W/X/Y scales — поле под цветом
+  document.querySelectorAll('.scaleGroup input[type=color]').forEach(inp => {
+    if(inp.getAttribute('data-hascode') === '1') return;
+    const ci = document.createElement('input');
+    ci.type = 'text';
+    ci.className = 'clrCodeInput';
+    ci.id = (inp.id ? `${inp.id}_code` : `clr_${Math.random().toString(16).slice(2)}_code`);
+    ci.autocomplete = 'off';
+    ci.spellcheck = false;
+    inp.insertAdjacentElement('afterend', ci);
+    inp.setAttribute('data-hascode', '1');
+    inp.setAttribute('data-code-input', ci.id);
+    bind(inp, ci);
+  });
+
+  refreshColorCodes();
+}
+
 function _collectStyleSettingsFromUI() {
   return {
     row_mark: {
@@ -1834,6 +1995,9 @@ function _applyStyleSettingsToUI(s) {
   _set('wCMin', wc.min || '#0000FF'); _set('wCOpt', wc.opt || '#00FF00'); _set('wCMax', wc.max || '#FF0000');
   _set('xCMin', xc.min || '#0000FF'); _set('xCOpt', xc.opt || '#00FF00'); _set('xCMax', xc.max || '#FF0000');
   _set('yCMin', yc.min || '#0000FF'); _set('yCOpt', yc.opt || '#00FF00'); _set('yCMax', yc.max || '#FF0000');
+
+  // если значения выставлены программно — обновим подписи
+  try{ refreshColorCodes(); } catch(e) {}
 }
 
 function loadStyleSettings() {
@@ -2054,6 +2218,7 @@ function wire() {
   });
 
   // load export styling settings
+  initColorCodes();
   loadStyleSettings();
 
 

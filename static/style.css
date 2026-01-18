@@ -28,7 +28,7 @@ button { padding: 7px 12px; cursor:pointer; }
   grid-template-columns: 1.15fr 1.55fr 1.25fr;
   gap: 12px;
   align-items: stretch;
-  height: clamp(520px, 62vh, 720px);
+  height: clamp(520px, 62vh, 850px);
   min-height: 0; /* важно: даём детям grid сжиматься */
 }
 .main3 .box{
@@ -140,6 +140,42 @@ button { padding: 7px 12px; cursor:pointer; }
 .stylePanel{margin-top:10px;padding:10px;border:1px dashed #ddd;border-radius:10px;background:#fff;}
 .styleTitle{font-weight:bold;margin-bottom:6px;}
 .mini{font-size:11px;opacity:.85;}
+
+.colorFmtRow select{
+  padding:4px 8px;
+  border-radius:8px;
+  border:1px solid #ddd;
+  background:#fff;
+}
+
+/* Значение цвета (HEX/RGB) под каждым input[type=color] */
+.scaleGroup .clrCodeInput{
+  grid-column: 2 / 4;
+  grid-row: 2;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size:10px;
+  opacity:.85;
+  width:100%;
+  min-width:0;
+  padding:1px 4px;
+  border:1px solid #e5e5e5;
+  border-radius:6px;
+  background:#fafafa;
+  box-sizing:border-box;
+  line-height:1.2;
+}
+
+.row2 .clrCodeInput{
+  font-size:11px;
+  opacity:.9;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  margin-left:6px;
+  width:120px;
+  padding:2px 6px;
+  border:1px solid #e5e5e5;
+  border-radius:8px;
+  background:#fafafa;
+}
 .scaleGrid{display:flex;flex-direction:column;gap:8px;margin-top:6px;overflow-x:hidden;}
 
 .scaleRow{
@@ -264,17 +300,7 @@ button { padding: 7px 12px; cursor:pointer; }
 .overlay.hidden{display:none;}
 .overlayBox{background:#fff;border-radius:12px;box-shadow:0 6px 22px rgba(0,0,0,.2);padding:18px 18px 14px 18px;min-width:260px;max-width:480px;display:flex;gap:12px;align-items:center;}
 .overlayText{font-size:13px;color:#333;line-height:1.35;}
-.spinnerLarge{
-  width:20px;
-  height:20px;
-  border:3px solid #bbb;
-  border-top-color:#333;
-  border-radius:50%;
-  animation:spin .8s linear infinite;
-  flex:0 0 20px;
-  min-width:20px;
-  box-sizing:border-box;
-}
+.spinnerLarge{width:20px;height:20px;border:3px solid #bbb;border-top-color:#333;border-radius:50%;animation:spin .8s linear infinite;flex:0 0 20px;min-width:20px;box-sizing:border-box;}
 
 /* Toasts */
 .toastContainer{position:fixed;right:16px;top:16px;display:flex;flex-direction:column;gap:8px;z-index:10000;}
@@ -360,3 +386,4 @@ button { padding: 7px 12px; cursor:pointer; }
 
 .controlsBox .boxContent{overflow-x:hidden;}
 .exportBox .boxContent{overflow-x:hidden;}
+.rangeLine {font-size: 12px;}

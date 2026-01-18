@@ -157,11 +157,20 @@
           <div id="exportInfo" class="exportInfo">—</div>
 
           <div class="row2">
-            <div><b>Выбранный интервал:</b> <span id="rangeText">—</span></div>
+            <div class="rangeLine"><b>Выбранный интервал:</b> <span id="rangeText">—</span></div>
           </div>
 
           <div class="stylePanel">
             <div class="styleTitle">Оформление экспорта (шаблон XLSX)</div>
+
+            <div class="row2 colorFmtRow">
+              <label>Формат цвета:</label>
+              <select id="colorFormat" title="Как показывать подпись под цветом">
+                <option value="hex" selected>HEX</option>
+                <option value="rgb">RGB</option>
+              </select>
+              <span class="mini">подпись под каждым цветом</span>
+            </div>
 
             <div class="row2">
               <label>Строки B..P, если T &lt;</label>
