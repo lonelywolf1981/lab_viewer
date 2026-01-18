@@ -2,7 +2,8 @@ name: Build SFX release (stable)
 
 on:
   push:
-    branches: ["main"]
+    branches:
+      - main
 
 permissions:
   contents: write
@@ -17,26 +18,25 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Ensure 7-Zip (with SFX module)
-        shell: powershell
+      - name: Install 7-Zip (with SFX module)
+        shell: pwsh
         run: |
-          if (!(Test-Path "$env:ProgramFiles\7-Zip\7z.exe")) {
+          if (-not (Test-Path "$env:ProgramFiles\7-Zip\7z.exe")) {
             choco install 7zip -y
           }
-          if (!(Test-Path "$env:ProgramFiles\7-Zip\7z.sfx")) {
-            throw "7z.sfx not found. 7-Zip may be installed without SFX module."
+          if (-not (Test-Path "$env:ProgramFiles\7-Zip\7z.sfx")) {
+            throw "7z.sfx not found in $env:ProgramFiles\7-Zip"
           }
 
-      - name: Compute version (MAJOR manual, MINOR auto per commit)
+      - name: Compute version (MAJOR manual, MINOR auto)
         id: ver
-        shell: powershell
+        shell: pwsh
         run: |
           $tags = git tag --list "v*.*.*"
-
-          $versions = @()
+          $parsed = @()
           foreach ($t in $tags) {
             if ($t -match '^v(\d+)\.(\d+)\.(\d+)$') {
-              $versions += [pscustomobject]@{
+              $parsed += [pscustomobject]@{
                 tag   = $t
                 major = [int]$matches[1]
                 minor = [int]$matches[2]
@@ -45,22 +45,15 @@ jobs:
             }
           }
 
-          if ($versions.Count -eq 0) {
-            # Если тегов ещё нет: стартуем с v1.0.0 на первом коммите, затем v1.1.0 и т.д.
+          if ($parsed.Count -eq 0) {
             $major = 1
-            $minor = ([int](git rev-list --count HEAD)) - 1
+            $minor = [int](git rev-list --count HEAD) - 1
             if ($minor -lt 0) { $minor = 0 }
           } else {
-            # Берём текущий MAJOR как максимальный среди тегов
-            $major = ($versions | Measure-Object major -Maximum).Maximum
-
-            # Базовый тег для подсчёта MINOR: самый ранний тег этого MAJOR (обычно v<MAJOR>.0.0)
-            $majorTags = $versions | Where-Object { $_.major -eq $major } | Sort-Object minor, patch
-            $base      = $majorTags[0]
-            $baseTag   = $base.tag
-            $baseMinor = [int]$base.minor
-
-            # MINOR = baseMinor + кол-во коммитов после baseTag
+            $major = ($parsed | Measure-Object major -Maximum).Maximum
+            $majorTags = $parsed | Where-Object { $_.major -eq $major } | Sort-Object minor, patch
+            $baseTag = $majorTags[0].tag
+            $baseMinor = [int]$majorTags[0].minor
             $commitsSince = [int](git rev-list --count "$baseTag..HEAD")
             $minor = $baseMinor + $commitsSince
           }
@@ -68,72 +61,63 @@ jobs:
           $version = "v$major.$minor.0"
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
-      - name: Build .7z and self-extracting .exe
-        shell: powershell
+      - name: Build SFX (.exe)
+        shell: pwsh
         run: |
           $version = "${{ steps.ver.outputs.version }}"
-
-          $sevenZip = "$env:ProgramFiles\7-Zip\7z.exe"
-          $sfx      = "$env:ProgramFiles\7-Zip\7z.sfx"
+          $sevenZip = Join-Path $env:ProgramFiles "7-Zip\7z.exe"
+          $sfx      = Join-Path $env:ProgramFiles "7-Zip\7z.sfx"
 
           $archive = "repo_${version}.7z"
           $outExe  = "repo_${version}_stable.exe"
 
           & $sevenZip a -t7z $archive ".\*" "-xr!.git" | Out-Host
 
-          $config = @"
-;!@Install@!UTF-8!
-Title="Repository $version (stable)"
-BeginPrompt="Распаковать файлы релиза $version?"
-ExtractTitle="Распаковка..."
-;!@Install@!UTF-8!
-"@
-          $config | Out-File -Encoding utf8 -FilePath "config.txt"
+          @'
+            ;!@Install@!UTF-8!
+            Title="Repository (stable)"
+            BeginPrompt="Распаковать файлы?"
+            ExtractTitle="Распаковка..."
+            ;!@Install@!UTF-8!
+          '@ | Out-File -Encoding utf8 -FilePath "config.txt"
 
-          cmd /c "copy /b `"$sfx`" + config.txt + `"$archive`" `"$outExe`""
+          cmd /c "copy /b ""$sfx"" + config.txt + ""$archive"" ""$outExe"""
 
           "OUT_EXE=$outExe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Create/update tags (version + stable)
-        shell: powershell
+        shell: pwsh
         run: |
           $version = "${{ steps.ver.outputs.version }}"
 
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Тег версии создаём только если его ещё нет в origin
           $remote = git ls-remote --tags origin $version
           if ([string]::IsNullOrWhiteSpace($remote)) {
             git tag -a $version -m "Release $version (stable)"
             git push origin $version
           } else {
-            Write-Host "Tag $version already exists in origin — skipping tag creation."
+            Write-Host "Tag $version already exists — skipping."
           }
 
-          # stable всегда указывает на HEAD
           git tag -f stable
           git push origin -f stable
 
       - name: Create or update GitHub Release (stable)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: powershell
+        shell: pwsh
         run: |
           $version = "${{ steps.ver.outputs.version }}"
+          $notes = "Авто-стабильный релиз по коммиту $env:GITHUB_SHA. Тег stable указывает на этот релиз."
 
-          $exists = $false
-          try { gh release view $version | Out-Null; $exists = $true } catch { }
+          $exists = $true
+          try { gh release view $version | Out-Null } catch { $exists = $false }
 
           if ($exists) {
             gh release upload $version "$env:OUT_EXE" --clobber
-            gh release edit $version `
-              --title "$version (stable)" `
-              --notes "Авто-стабильный релиз по коммиту $env:GITHUB_SHA. Тег 'stable' указывает на этот релиз." `
-              --latest
+            gh release edit $version --title "$version (stable)" --notes $notes --latest
           } else {
-            gh release create $version "$env:OUT_EXE" `
-              --title "$version (stable)" `
-              --notes "Авто-стабильный релиз по коммиту $env:GITHUB_SHA. Тег 'stable' указывает на этот релиз." `
-              --latest
+            gh release create $version "$env:OUT_EXE" --title "$version (stable)" --notes $notes --latest
           }
