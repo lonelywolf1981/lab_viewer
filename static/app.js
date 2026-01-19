@@ -317,19 +317,18 @@ function _safeJsonParse(raw, defv) {
 }
 
 function loadViewOpts() {
+  // Сейчас в UI оставлен только «компактно». Режим «группы» убран, поэтому принудительно выключаем.
   try {
     const raw = localStorage.getItem(LS_VIEW_OPTS_KEY);
     const st = raw ? _safeJsonParse(raw, null) : null;
     const compact = !!(st && st.compact);
-    const groups  = !!(st && st.groups);
-    const collapsed = (st && st.collapsed_groups && typeof st.collapsed_groups === 'object') ? st.collapsed_groups : {};
 
     VIEW_COMPACT = compact;
-    VIEW_GROUPS  = groups;
-    COLLAPSED_GROUPS = new Set(Object.keys(collapsed).filter(k => collapsed[k]));
+    VIEW_GROUPS  = false;
+    COLLAPSED_GROUPS = new Set();
 
     if(el('viewCompact')) el('viewCompact').checked = VIEW_COMPACT;
-    if(el('viewGroups')) el('viewGroups').checked = VIEW_GROUPS;
+    // viewGroups больше нет в интерфейсе
   } catch(e) {}
 }
 
@@ -350,6 +349,28 @@ function syncViewOptsFromUI(save=false) {
     if(vg) VIEW_GROUPS  = !!vg.checked;
     if(save) saveViewOpts();
   } catch(e) {}
+}
+
+
+function initChannelControlsHints() {
+  // Динамические подсказки в блоке «Управление каналами»
+  const root = el('channelControls');
+  const body = el('controlsHintsBody');
+  if(!root || !body) return;
+
+  const defText = String(body.getAttribute('data-default') || body.textContent || '').trim();
+  const setText = (t) => { body.textContent = (t && String(t).trim()) ? String(t) : defText; };
+
+  // Навешиваем на все элементы с data-hint внутри блока
+  const nodes = root.querySelectorAll('[data-hint]');
+  nodes.forEach(n => {
+    n.addEventListener('mouseenter', () => setText(n.getAttribute('data-hint')));
+    n.addEventListener('mouseleave', () => setText(defText));
+  });
+
+  // На всякий случай: уход мыши за блок
+  root.addEventListener('mouseleave', () => setText(defText));
+  setText(defText);
 }
 
 function applyViewClasses() {
@@ -790,7 +811,26 @@ function selectAll() {
   scheduleRedraw();
 }
 function clearAll() {
-  setSelection([]);
+  // По требованию UI: «Снять все» оставляет выбранным один канал — самый первый в списке.
+  let first = null;
+  try {
+    const list = el('channelList');
+    if(list) {
+      const li = list.querySelector('.chanItem[data-code]');
+      if(li) first = li.getAttribute('data-code');
+    }
+  } catch(e) {}
+
+  if(!first && CHANNELS_VIEW_ALL && CHANNELS_VIEW_ALL.length) first = CHANNELS_VIEW_ALL[0].code;
+  if(!first && CHANNELS_VIEW && CHANNELS_VIEW.length) first = CHANNELS_VIEW[0].code;
+
+  if(first) {
+    setSelection([first]);
+    anchorCode = first;
+  } else {
+    setSelection([]);
+    anchorCode = null;
+  }
   scheduleRedraw();
 }
 
@@ -2148,6 +2188,8 @@ function wire() {
   refreshRecentFoldersUI();
   applyViewClasses();
 
+  initChannelControlsHints();
+
   const rf = el('recentFolders');
   if(rf) rf.addEventListener('change', () => {
     const v = String(rf.value || '').trim();
@@ -2162,12 +2204,6 @@ function wire() {
 
   const vc = el('viewCompact');
   if(vc) vc.addEventListener('change', () => {
-    syncViewOptsFromUI(true);
-    applyViewClasses();
-    applySortAndRender(true, false);
-  });
-  const vg = el('viewGroups');
-  if(vg) vg.addEventListener('change', () => {
     syncViewOptsFromUI(true);
     applyViewClasses();
     applySortAndRender(true, false);
@@ -2298,7 +2334,9 @@ function wire() {
 
   // populate lists on startup
   refreshNamedOrders();
-  refreshPresets();
+  if(el('presetSelect') || el('btnSavePreset') || el('btnLoadPreset') || el('btnDeletePreset') || el('btnRefreshPresets')) {
+    refreshPresets();
+  }
 
   // init step UI
   updateStepUI();

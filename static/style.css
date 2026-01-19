@@ -432,8 +432,42 @@ button { padding: 7px 12px; cursor:pointer; }
 .exportBtnRow button{flex:1;width:100%;}
 .exportOptRow{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:6px 0;}
 
-.controlsBox .boxContent{overflow-x:hidden;}
+.controlsBox .boxContent{
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  min-height:0;
+}
 .exportBox .boxContent{overflow-x:hidden;}
+
+/* ===== Controls hints panel ===== */
+.controlsHints{
+  flex:1 1 auto;
+  min-height:120px;
+  border:1px solid #e5e5e5;
+  border-radius:12px;
+  background:#fff;
+  padding:10px 10px 8px 10px;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+.controlsHintsTitle{
+  font-weight:600;
+  font-size:13px;
+  color:#222;
+}
+.controlsHintsBody{
+  flex:1 1 auto;
+  min-height:0;
+  overflow:auto;
+  font-size:12px;
+  color:#444;
+  line-height:1.35;
+  white-space:pre-wrap;
+}
+
 .rangeLine {font-size: 12px;}
 
 /* ===== FIX: Export styling (W/X/Y -> min/max/avg t) layout ===== */
