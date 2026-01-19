@@ -1,4 +1,5 @@
-![Логотип ТОО "Jasyl Suyq Qazaqstan"](static/img.png){width=50% align=center}
+<img src="static/img.png" alt="Логотип ТОО Jasyl Suyq Qazaqstan" width="10%" style="display: block; margin: 0 auto;">
+
 
 # ИЛХО Viewer
 
