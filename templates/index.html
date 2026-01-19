@@ -142,16 +142,13 @@
             </div>
 
             <div class="row2">
-              <label>Строки B..P, если T &lt;</label>
+              <label>Если мощность &lt;</label>
               <input id="rmThreshold" type="number" step="0.1" style="width:90px"/>
               <label>цвет:</label>
-              <input id="rmColor" type="color"/>
-            </div>
-
-            <div class="row2">
-              <label>Интенсивность:</label>
-              <input id="rmIntensity" type="range" min="0" max="100" value="100"/>
-              <span id="rmIntensityVal" class="mini">100</span>
+              <div class="colorStack">
+                <input id="rmColor" type="color"/>
+                <input id="rmColorCode" type="text" class="clrCodeInput" autocomplete="off" spellcheck="false"/>
+              </div>
             </div>
 
             <div class="scaleGrid">

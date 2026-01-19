@@ -84,9 +84,6 @@ let saveOrderTimer = null;
 let selected = new Set();     // selected channel codes (like <select multiple>)
 let anchorCode = null;        // last clicked code (for Shift selection)
 
-// Drag state for multi-move (selected channels)
-let DRAG_CODES = null;
-
 const el = (id) => document.getElementById(id);
 const log = (msg) => {
   const L = el("log");
@@ -998,27 +995,8 @@ function renderChannelList(arr, keepSelection=true, pruneSelection=true) {
         else toast('Перетаскивание отключено', 'Снимите фильтры (поиск/чипы/только выбранные) и попробуйте снова', 'warn', 5000);
         return;
       }
-
-      // Если тянем выбранный канал — переносим сразу всю выделенную группу (в текущем порядке списка).
-      const order = currentOrderCodes();
-      const codes = (selected && selected.has(ch.code))
-        ? order.filter(c => selected.has(c))
-        : [ch.code];
-
-      DRAG_CODES = codes.slice();
-
-      // Visual hint: mark all dragged rows
-      const ds = new Set(DRAG_CODES);
-      list.querySelectorAll('.chanItem[data-code]').forEach(row => {
-        const c = row.getAttribute('data-code');
-        if(ds.has(c)) row.classList.add('draggingMulti');
-      });
-
       li.classList.add("dragging");
-
-      // Primary payload: JSON array. Fallback: plain code.
-      try { ev.dataTransfer.setData('application/x-lemure-codes', JSON.stringify(DRAG_CODES)); } catch(_) {}
-      ev.dataTransfer.setData("text/plain", DRAG_CODES[0] || ch.code);
+      ev.dataTransfer.setData("text/plain", ch.code);
       ev.dataTransfer.effectAllowed = "move";
       if(ev.dataTransfer.setDragImage) {
         try { ev.dataTransfer.setDragImage(li, 20, 12); } catch(_) {}
@@ -1027,8 +1005,6 @@ function renderChannelList(arr, keepSelection=true, pruneSelection=true) {
     handle.addEventListener("dragend", () => {
       li.classList.remove("dragging");
       list.querySelectorAll(".chanItem").forEach(x => x.classList.remove("dragOver"));
-      list.querySelectorAll('.chanItem.draggingMulti').forEach(x => x.classList.remove('draggingMulti'));
-      DRAG_CODES = null;
     });
 
     // Drag over/drop on row
@@ -1041,24 +1017,9 @@ function renderChannelList(arr, keepSelection=true, pruneSelection=true) {
     li.addEventListener("drop", (ev) => {
       ev.preventDefault();
       li.classList.remove("dragOver");
-
-      let codes = null;
-      try {
-        const raw = ev.dataTransfer.getData('application/x-lemure-codes');
-        if(raw) {
-          const parsed = JSON.parse(raw);
-          if(Array.isArray(parsed) && parsed.length) codes = parsed;
-        }
-      } catch(_) {}
-      if(!codes || !codes.length) codes = (DRAG_CODES && DRAG_CODES.length) ? DRAG_CODES.slice() : null;
-      if(!codes || !codes.length) {
-        const draggedCode = ev.dataTransfer.getData('text/plain');
-        if(draggedCode) codes = [draggedCode];
-      }
-      if(!codes || !codes.length) return;
-      if(codes.includes(ch.code)) return;
-
-      moveCodeBefore(codes, ch.code);
+      const draggedCode = ev.dataTransfer.getData("text/plain");
+      if(!draggedCode || draggedCode === ch.code) return;
+      moveCodeBefore(draggedCode, ch.code);
     });
 
     list.appendChild(li);
@@ -1088,37 +1049,12 @@ function renderChannelList(arr, keepSelection=true, pruneSelection=true) {
 
 function moveCodeBefore(draggedCode, targetCode) {
   const list = el("channelList");
-  if(!list) return;
+  const items = Array.from(list.querySelectorAll(".chanItem"));
+  const dragged = items.find(li => li.getAttribute("data-code") === draggedCode);
+  const target  = items.find(li => li.getAttribute("data-code") === targetCode);
+  if(!dragged || !target) return;
 
-  const codes = Array.isArray(draggedCode) ? draggedCode.slice() : [draggedCode];
-  if(!codes.length) return;
-  if(codes.includes(targetCode)) return;
-
-  // Keep the order as it appears in DOM (important for multi-drag)
-  const domOrder = currentOrderCodes();
-  const set = new Set(codes);
-  const ordered = domOrder.filter(c => set.has(c));
-
-  const target = list.querySelector(`.chanItem[data-code="${CSS.escape(targetCode)}"]`);
-  if(!target) return;
-
-  const frag = document.createDocumentFragment();
-  ordered.forEach(code => {
-    const node = list.querySelector(`.chanItem[data-code="${CSS.escape(code)}"]`);
-    if(node) frag.appendChild(node);
-  });
-  if(!frag.childNodes.length) return;
-
-  list.insertBefore(frag, target);
-
-  // Sync internal order arrays so export/plot order reflects the new DOM immediately
-  try {
-    const byCode = new Map((CHANNELS_FILE || []).map(c => [c.code, c]));
-    const newCodes = currentOrderCodes();
-    CHANNELS_VIEW_ALL = newCodes.map(c => byCode.get(c)).filter(Boolean);
-    CHANNELS_VIEW = CHANNELS_VIEW_ALL.slice();
-  } catch(_) {}
-
+  list.insertBefore(dragged, target);
   refreshSelectionUI();
 
   // Dragging means "custom" order now
@@ -2071,16 +2007,20 @@ function initColorCodes(){
     upd();
   };
 
-  // 1) Row mark color (rmColor) — поле рядом
+  // 1) Row mark color (rmColor) — поле под колорпикером
   const rm = el('rmColor');
   if(rm && rm.getAttribute('data-hascode') !== '1'){
-    const ci = document.createElement('input');
-    ci.type = 'text';
-    ci.className = 'clrCodeInput';
-    ci.id = 'rmColorCode';
-    ci.autocomplete = 'off';
-    ci.spellcheck = false;
-    rm.insertAdjacentElement('afterend', ci);
+    // Если поле кода уже есть в HTML — используем его, иначе создаём.
+    let ci = el('rmColorCode');
+    if(!ci){
+      ci = document.createElement('input');
+      ci.type = 'text';
+      ci.className = 'clrCodeInput';
+      ci.id = 'rmColorCode';
+      ci.autocomplete = 'off';
+      ci.spellcheck = false;
+      rm.insertAdjacentElement('afterend', ci);
+    }
     rm.setAttribute('data-hascode', '1');
     rm.setAttribute('data-code-input', ci.id);
     bind(rm, ci);

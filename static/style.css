@@ -176,6 +176,19 @@ button { padding: 7px 12px; cursor:pointer; }
   border-radius:8px;
   background:#fafafa;
 }
+
+/* Цвет + поле кода под ним (для rmColor) */
+.colorStack{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  gap:4px;
+}
+.colorStack .clrCodeInput{
+  margin-left:0;
+  width:120px;
+  max-width:160px;
+}
 .scaleGrid{display:flex;flex-direction:column;gap:8px;margin-top:6px;overflow-x:hidden;}
 
 
