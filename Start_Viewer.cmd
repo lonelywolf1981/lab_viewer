@@ -36,7 +36,7 @@ echo [run] starting server.py>>"%LOG%"
 
 
 rem Open browser after a short delay (works on Win7+)
-start "" /b cmd /c "ping 127.0.0.1 -n 2 >nul & start http://127.0.0.1:8787"
+rem start "" /b cmd /c "ping 127.0.0.1 -n 2 >nul & start http://127.0.0.1:8787"
 
 "%VENV_PY%" server.py >>"%LOG%" 2>&1
 
