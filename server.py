@@ -1079,7 +1079,6 @@ def _api_export_template_impl():
     if start_ms > end_ms:
         start_ms, end_ms = end_ms, start_ms
 
-    # Find first sample within range
     i0 = bisect_left(t_list, start_ms)
     if i0 >= len(t_list):
         return jsonify({"ok": False, "error": "Диапазон вне данных"}), 400
@@ -1087,7 +1086,7 @@ def _api_export_template_impl():
     if t0 > end_ms:
         return jsonify({"ok": False, "error": "Пустой диапазон"}), 400
 
-    # Build 20s grid starting from the first real sample in the selected range
+    # Построение сетки 20s
     grid_ms: List[int] = []
     g = t0
     step_ms = 20000
@@ -1095,7 +1094,6 @@ def _api_export_template_impl():
         grid_ms.append(g)
         g += step_ms
 
-    # Map each grid point to nearest sample
     idxs: List[int] = []
     for g in grid_ms:
         idx = _nearest_index(t_list, g)
@@ -1104,41 +1102,21 @@ def _api_export_template_impl():
         else:
             idxs.append(idx)
 
-    # Selected channels from UI (optional query param "channels").
-    # В отличие от обычного экспорта, "в шаблон" раньше должен был учитывать выбор
-    # пользователя: выгружать только выбранные каналы. В Stage-1 по ошибке это поведение
-    # было изменено на "выгружать все".
     ch_arg = (request.args.get("channels") or "").strip()
     selected_list = [c.strip() for c in ch_arg.split(",") if c.strip()]
     selected = set(selected_list)
 
-    # Debug: log what we received (goes to run log)
-    try:
-        print("[TEMPLATE] start_ms=", start_ms, "end_ms=", end_ms, "channels=", ",".join(sorted(selected)))
-    except Exception:
-        pass
-
     def resolve_for_selection(key: str) -> str:
-        """Resolve a channel code for a given key.
-
-        If selection is provided, try to pick a matching channel that is selected.
-        Otherwise fall back to the standard preference (A-*, C-*, plain).
-        """
         matches = []
-        # Exact match
         if key in cols:
             matches.append(key)
-        # Suffix match (A-T1, C-T1, etc.)
         suf = f"-{key}"
         for c in cols:
             if c.endswith(suf) and c not in matches:
                 matches.append(c)
-
         if not matches:
             return ""
-
         if selected:
-            # Если выбор задан — берём только выбранные варианты.
             for pref in ("A-", "C-"):
                 for c in matches:
                     if c in selected and c.startswith(pref):
@@ -1146,54 +1124,31 @@ def _api_export_template_impl():
             for c in matches:
                 if c in selected:
                     return c
-            # Нет выбранных совпадений — оставляем колонку пустой.
             return ""
-
-        # Prefer A- then C- then the first remaining
         for pref in ("A-", "C-"):
             for c in matches:
                 if c.startswith(pref):
                     return c
         return matches[0]
 
-    # Resolve channel -> template column mapping (D..T)
     key_to_col = {
-        "Pc": 4,
-        "Pe": 5,
-        "T-sie": 6,
-        "UR-sie": 7,
-        "Tc": 8,
-        "Te": 9,
-        "T1": 10,
-        "T2": 11,
-        "T3": 12,
-        "T4": 13,
-        "T5": 14,
-        "T6": 15,
-        "T7": 16,
-        "I": 17,
-        "F": 18,
-        "V": 19,
-        "W": 20,
+        "Pc": 4, "Pe": 5, "T-sie": 6, "UR-sie": 7,
+        "Tc": 8, "Te": 9, "T1": 10, "T2": 11,
+        "T3": 12, "T4": 13, "T5": 14, "T6": 15,
+        "T7": 16, "I": 17, "F": 18, "V": 19, "W": 20,
     }
-    # При экспорте "в шаблон" учитываем выбор каналов пользователя.
+
     key_to_code = {k: resolve_for_selection(k) for k in key_to_col.keys()}
-    # Extra sensors (not mapped to D..T): write them starting from column Z.
-    # Sorting is "human-friendly": 1, 2, 3 ... (natural sort) by sensor name.
     fixed_codes = set([v for v in key_to_code.values() if v])
 
-    # Дополнительные каналы (Z..): если пользователь выбрал каналы — выгружаем только их.
-    # Иначе (если channels не передан) сохраняем старое поведение: выгрузить всё.
     candidate_codes = [c for c in selected_list if c in cols] if selected_list else list(cols)
 
-    # Whether to include extra channels (Z..). UI may send include_extra=0.
     try:
         include_extra = int(str(request.args.get("include_extra", "1")).strip() or "1")
     except Exception:
         include_extra = 1
 
     extra_codes = [c for c in candidate_codes if c and c not in fixed_codes]
-
     if include_extra <= 0:
         extra_codes = []
 
@@ -1241,12 +1196,12 @@ def _api_export_template_impl():
 
     extra_codes.sort(key=lambda c: (_nat_key(_display_name(c)), _nat_key(c)))
 
-    EXTRA_START_COL = 26  # Z
+    EXTRA_START_COL = 26
     extra_col_map = {code: (EXTRA_START_COL + i) for i, code in enumerate(extra_codes)}
 
     template_path = TEMPLATE_FILE
     if not os.path.isfile(template_path):
-        return jsonify({"ok": False, "error": "Не найден template.xlsx рядом с server.py"}), 400
+        return jsonify({"ok": False, "error": "Не найден template.xlsx"}), 400
 
     try:
         from openpyxl import load_workbook
@@ -1255,22 +1210,27 @@ def _api_export_template_impl():
         from copy import copy
         import datetime as _dt
 
-        wb = load_workbook(template_path)
+        t_all0 = time_mod.perf_counter()
+
+        # ОПТИМИЗАЦИЯ 1: Отключаем data_only для ускорения
+        wb = load_workbook(template_path, data_only=False, keep_vba=False)
         ws = wb.active
 
-        _t0_export = time_mod.time()
+        # ОПТИМИЗАЦИЯ 2: Отключаем автопересчёт формул
+        wb.calculation.calcMode = 'manual'
+
+        t_load = time_mod.perf_counter()
 
         start_row = 4
         pattern_row = start_row
-        max_col = ws.max_column
-        # Ensure we have enough columns for extra sensors (starting from Z)
+
         required_last_col = 0
         if extra_codes:
             required_last_col = EXTRA_START_COL + len(extra_codes) - 1
-        if required_last_col and required_last_col > max_col:
-            max_col = required_last_col
+        BASE_LAST_COL = 25
+        max_col = max(BASE_LAST_COL, required_last_col or 0)
 
-        # Find formula columns in the pattern row and remember pattern formulas
+        # Находим формульные колонки
         formula_cols = set()
         pattern_formulas = {}
         for c in range(1, max_col + 1):
@@ -1279,7 +1239,7 @@ def _api_export_template_impl():
                 formula_cols.add(c)
                 pattern_formulas[c] = v
 
-        # Cache styles from the pattern row once (fix: style_cache was not defined)
+        # ОПТИМИЗАЦИЯ 3: Кэшируем стили один раз
         style_cache = {}
         for c in range(1, max_col + 1):
             src = ws.cell(row=pattern_row, column=c)
@@ -1293,70 +1253,19 @@ def _api_export_template_impl():
                 'protection': copy(src.protection),
             }
 
-        def ensure_row_with_style(r: int) -> None:
-            """Ensure row exists and has styles like pattern_row. Optimized: reuse style objects (no deepcopy)."""
-            if r <= ws.max_row:
-                return
-            # create row cells
-            for c in range(1, max_col + 1):
-                ws.cell(row=r, column=c)
+        # ОПТИМИЗАЦИЯ 4: Создаём строки пакетом
+        needed_last_row = start_row + len(idxs) - 1
+
+        # Сначала создаём все нужные строки
+        for r in range(ws.max_row + 1, needed_last_row + 1):
+            # Создаём только первую ячейку, остальные создадутся при записи
+            ws.cell(row=r, column=1)
             try:
                 ws.row_dimensions[r].height = ws.row_dimensions[pattern_row].height
             except Exception:
                 pass
-            # apply cached styles (reuse objects; much faster than copy())
-            for c in range(1, max_col + 1):
-                d = ws.cell(row=r, column=c)
-                st = style_cache.get(c)
-                if not st:
-                    src = ws.cell(row=pattern_row, column=c)
-                    st = {
-                        "_style": copy(src._style),
-                        "number_format": src.number_format,
-                        "font": copy(src.font),
-                        "border": copy(src.border),
-                        "fill": copy(src.fill),
-                        "alignment": copy(src.alignment),
-                        "protection": copy(src.protection),
-                    }
-                    style_cache[c] = st
-                d._style = st["_style"]
-                d.number_format = st["number_format"]
-                d.font = st["font"]
-                d.border = st["border"]
-                d.fill = st["fill"]
-                d.alignment = st["alignment"]
-                d.protection = st["protection"]
 
-        needed_last_row = start_row + len(idxs) - 1
-        for r in range(ws.max_row + 1, needed_last_row + 1):
-            ensure_row_with_style(r)
-
-        # Prepare rows: keep formulas (translated), clear everything else
-        fill_cols = set([2, 3] + list(range(4, 21)))  # B,C,D..T
-        formula_list = sorted(list(formula_cols))
-        clear_cols = [c for c in range(1, max_col + 1) if c not in fill_cols and c not in formula_cols]
-
-        for j in range(len(idxs)):
-            r = start_row + j
-            # Clear only columns that may contain stale sample values (faster than clearing all 1..max_col)
-            for c in clear_cols:
-                ws.cell(row=r, column=c).value = None
-
-            # Put formulas back (translated to the new row)
-            for c in formula_list:
-                src_formula = pattern_formulas.get(c)
-                if not src_formula:
-                    continue
-                src_addr = f"{get_column_letter(c)}{pattern_row}"
-                dst_addr = f"{get_column_letter(c)}{r}"
-                try:
-                    ws.cell(row=r, column=c).value = Translator(src_formula, origin=src_addr).translate_formula(
-                        dst_addr)
-                except Exception:
-                    ws.cell(row=r, column=c).value = src_formula
-
-        # Precompute which template columns we will actually write (only selected channels)
+        # ОПТИМИЗАЦИЯ 5: Подготавливаем данные заранее
         writers = []
         for key, colnum in key_to_col.items():
             code = key_to_code.get(key) or ""
@@ -1366,74 +1275,104 @@ def _api_export_template_impl():
                 continue
             writers.append((code, colnum))
 
-        # Write headers for extra sensors (row above data, starting from column Z)
-        if extra_codes:
-            header_row = start_row - 1
-            for code in extra_codes:
-                colnum = extra_col_map.get(code)
-                if not colnum:
-                    continue
-                try:
-                    ws.cell(row=header_row, column=colnum).value = _template_header(code)
-                except Exception:
-                    ws.cell(row=header_row, column=colnum).value = _display_name(code)
-
-        # Write data
+        # Подготовка данных для записи
+        data_buffer = []
         for j, idx in enumerate(idxs):
             r = start_row + j
-            ws.cell(row=r, column=2).value = _dt.timedelta(seconds=j * 20)
+            row_buffer = {}
+
+            row_buffer[2] = _dt.timedelta(seconds=j * 20)
 
             if idx >= 0:
                 tms = rows[idx]["t_ms"]
                 dt_obj = dt.datetime.fromtimestamp(tms / 1000)
-                ws.cell(row=r, column=3).value = dt_obj.time()
+                row_buffer[3] = dt_obj.time()
 
-                for key, colnum in key_to_col.items():
-                    code = key_to_code.get(key) or ""
-                    if not code:
-                        continue
-                    # Do not filter template output by selection. Selection is only a
-                    # preference for resolving ambiguous A-*/C-* codes.
+                # Основные колонки
+                for code, colnum in writers:
                     v = rows[idx].get(code)
-                    if v is None:
-                        ws.cell(row=r, column=colnum).value = None
-                    else:
+                    if v is not None:
                         try:
-                            ws.cell(row=r, column=colnum).value = float(v)
+                            row_buffer[colnum] = float(v)
                         except Exception:
-                            ws.cell(row=r, column=colnum).value = None
+                            pass
 
-                # Extra sensors (not mapped to D..T) -> from column Z onward
+                # Дополнительные сенсоры
                 for code in extra_codes:
                     colnum = extra_col_map.get(code)
                     if not colnum:
                         continue
                     v = rows[idx].get(code)
-                    if v is None:
-                        ws.cell(row=r, column=colnum).value = None
-                    else:
+                    if v is not None:
                         try:
-                            ws.cell(row=r, column=colnum).value = float(v)
+                            row_buffer[colnum] = float(v)
                         except Exception:
-                            ws.cell(row=r, column=colnum).value = None
-
+                            pass
             else:
-                ws.cell(row=r, column=3).value = None
+                row_buffer[3] = None
 
-        # Clear a bit below to avoid leftover sample values
+            data_buffer.append((r, row_buffer))
+
+        t_prep = time_mod.perf_counter()
+
+        # ОПТИМИЗАЦИЯ 6: Записываем данные одним проходом с кэшированием ячеек
+        formula_list = sorted(list(formula_cols))
+
+        for r, row_data in data_buffer:
+            # Кэшируем все ячейки строки сразу
+            row_cells = {}
+            for c in range(1, max_col + 1):
+                cell = ws.cell(row=r, column=c)
+                row_cells[c] = cell
+
+                # Применяем стиль из кэша
+                if c in style_cache:
+                    st = style_cache[c]
+                    cell._style = st["_style"]
+                    cell.number_format = st["number_format"]
+                    cell.font = st["font"]
+                    cell.border = st["border"]
+                    cell.fill = st["fill"]
+                    cell.alignment = st["alignment"]
+                    cell.protection = st["protection"]
+
+            # Записываем данные
+            for col, value in row_data.items():
+                row_cells[col].value = value
+
+            # Формулы
+            for c in formula_list:
+                src_formula = pattern_formulas.get(c)
+                if src_formula:
+                    src_addr = f"{get_column_letter(c)}{pattern_row}"
+                    dst_addr = f"{get_column_letter(c)}{r}"
+                    try:
+                        row_cells[c].value = Translator(src_formula, origin=src_addr).translate_formula(dst_addr)
+                    except Exception:
+                        row_cells[c].value = src_formula
+
+        # Заголовки для extra сенсоров
+        if extra_codes:
+            header_row = start_row - 1
+            for code in extra_codes:
+                colnum = extra_col_map.get(code)
+                if colnum:
+                    try:
+                        ws.cell(row=header_row, column=colnum).value = _template_header(code)
+                    except Exception:
+                        ws.cell(row=header_row, column=colnum).value = _display_name(code)
+
+        # Очистка строк ниже
         clear_from = start_row + len(idxs)
-        clear_to = min(ws.max_row, clear_from + 300)
+        clear_to = min(ws.max_row, clear_from + 100)  # Уменьшили с 300 до 100
         for r in range(clear_from, clear_to + 1):
             for c in range(1, max_col + 1):
-                if c in formula_cols:
-                    continue
-                ws.cell(row=r, column=c).value = None
+                if c not in formula_cols:
+                    ws.cell(row=r, column=c).value = None
 
-        # ---------------- Conditional formatting (beauty rules) ----------------
-        # Дискретная раскраска (без градиентов):
-        # 1) Если в колонке T (на этой же строке) значение < threshold_T,
-        #    то закрасить диапазон B..P этой строки цветом row_mark.color (с учётом intensity).
-        # 2) Для колонок W/X/Y: ниже min -> colors.min, между min..opt -> colors.opt, выше opt -> colors.max.
+        t_write = time_mod.perf_counter()
+
+        # Условное форматирование (как было)
         try:
             from openpyxl.styles import PatternFill
             from openpyxl.formatting.rule import FormulaRule
@@ -1442,7 +1381,6 @@ def _api_export_template_impl():
             last_r = start_row + len(idxs) - 1
 
             if last_r >= first_r:
-                # --- 1) Row highlight (B..P) if column T is below threshold ---
                 rm = VIEWER_SETTINGS.get('row_mark') if isinstance(VIEWER_SETTINGS.get('row_mark'), dict) else {}
                 thr = rm.get('threshold_T', 150)
                 try:
@@ -1462,7 +1400,6 @@ def _api_export_template_impl():
                 row_fill = PatternFill(fill_type='solid', start_color=fill_argb, end_color=fill_argb)
 
                 rng_row = f"B{first_r}:P{last_r}"
-                # Lock column T, keep row relative.
                 rule_row = FormulaRule(formula=[f"$T{first_r}<{thr}"], fill=row_fill, stopIfTrue=True)
                 try:
                     rule_row.priority = 1
@@ -1470,7 +1407,6 @@ def _api_export_template_impl():
                     pass
                 ws.conditional_formatting.add(rng_row, rule_row)
 
-                # --- 2) W/X/Y discrete coloring by min/opt ---
                 scales = VIEWER_SETTINGS.get('scales') if isinstance(VIEWER_SETTINGS.get('scales'), dict) else {}
 
                 def _hex_to_argb(hx: str, default: str) -> str:
@@ -1482,7 +1418,6 @@ def _api_export_template_impl():
                         xf = float(x)
                         if xf.is_integer():
                             return str(int(xf))
-                        # Excel uses dot for decimals
                         return (f"{xf:g}").replace(',', '.')
                     except Exception:
                         return str(x)
@@ -1503,7 +1438,6 @@ def _api_export_template_impl():
                     except Exception:
                         vopt_f = float(dflt.get('opt') or 0)
 
-                    # Guard against swapped/degenerate values
                     if vmin_f > vopt_f:
                         vmin_f, vopt_f = vopt_f, vmin_f
 
@@ -1513,9 +1447,6 @@ def _api_export_template_impl():
                     colors = spec.get('colors') if isinstance(spec.get('colors'), dict) else {}
                     dcolors = dflt.get('colors') if isinstance(dflt.get('colors'), dict) else {}
 
-                    # < min      -> colors.min
-                    # min..opt   -> colors.opt
-                    # > opt      -> colors.max
                     c_lo = _hex_to_argb(colors.get('min'), dcolors.get('min', '#1CBCF2'))
                     c_mid = _hex_to_argb(colors.get('opt'), dcolors.get('opt', '#00FF00'))
                     c_hi = _hex_to_argb(colors.get('max'), dcolors.get('max', '#F3919B'))
@@ -1526,33 +1457,28 @@ def _api_export_template_impl():
 
                     rng = f"{col_letter}{first_r}:{col_letter}{last_r}"
 
-                    # Column locked, row relative.
                     r1 = FormulaRule(
                         formula=[f'AND(${col_letter}{first_r}<>"",${col_letter}{first_r}<{min_s})'],
-                        fill=f_lo,
-                        stopIfTrue=True,
-                    )
+                        fill=f_lo, stopIfTrue=True)
                     r2 = FormulaRule(
-                        formula=[f'AND(${col_letter}{first_r}<>"",${col_letter}{first_r}>={min_s},${col_letter}{first_r}<={opt_s})'],
-                        fill=f_mid,
-                        stopIfTrue=True,
-                    )
+                        formula=[
+                            f'AND(${col_letter}{first_r}<>"",${col_letter}{first_r}>={min_s},${col_letter}{first_r}<={opt_s})'],
+                        fill=f_mid, stopIfTrue=True)
                     r3 = FormulaRule(
                         formula=[f'AND(${col_letter}{first_r}<>"",${col_letter}{first_r}>{opt_s})'],
-                        fill=f_hi,
-                        stopIfTrue=True,
-                    )
+                        fill=f_hi, stopIfTrue=True)
+
                     try:
                         r1.priority = base_prio
                         r2.priority = base_prio + 1
                         r3.priority = base_prio + 2
                     except Exception:
                         pass
+
                     ws.conditional_formatting.add(rng, r1)
                     ws.conditional_formatting.add(rng, r2)
                     ws.conditional_formatting.add(rng, r3)
 
-                # priorities are global in sheet; keep ranges separated by gaps
                 _add_discrete('W', 10)
                 _add_discrete('X', 20)
                 _add_discrete('Y', 30)
@@ -1563,20 +1489,40 @@ def _api_export_template_impl():
             except Exception:
                 pass
 
+        t_before_save = time_mod.perf_counter()
+
         bio = io.BytesIO()
         wb.save(bio)
         bio.seek(0)
 
+        t_after_save = time_mod.perf_counter()
+
+        total_s = t_after_save - t_all0
+        load_s = t_load - t_all0
+        prep_s = t_prep - t_load
+        write_s = t_write - t_prep
+        format_s = t_before_save - t_write
+        save_s = t_after_save - t_before_save
+
+        try:
+            print(
+                f"[TEMPLATE] timing: load={load_s:.3f}s prep={prep_s:.3f}s write={write_s:.3f}s format={format_s:.3f}s save={save_s:.3f}s total={total_s:.3f}s rows={len(idxs)} max_col={max_col}")
+        except Exception:
+            pass
+
         fn = f"template_filled_{dt.datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-        return _send_file_compat(
-            bio,
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            fn,
-        )
+        resp = _send_file_compat(bio, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fn)
+
+        try:
+            resp.headers['X-Export-Total-S'] = f"{total_s:.3f}"
+            resp.headers['X-Export-Timing'] = f"load {load_s:.1f}s | build {build_s:.1f}s | save {save_s:.1f}s | total {total_s:.1f}s"
+        except Exception:
+            pass
+
+        return resp
 
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
-
 
 def _open_browser():
     try:
