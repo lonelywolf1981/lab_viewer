@@ -96,40 +96,7 @@
         <div class="box exportBox">
           <div class="boxTitle">Диапазон / Экспорт</div>
           <div class="boxContent">
-
-          <div class="row2 stepRow">
-            <label>Шаг:</label>
-            <label class="check"><input id="stepAuto" type="checkbox" checked/> Авто</label>
-            <select id="stepTarget" title="Целевое количество точек (примерно) для авто-шага">
-              <option value="5000" selected>≈ 5k точек</option>
-              <option value="10000">≈ 10k точек</option>
-              <option value="20000">≈ 20k точек</option>
-            </select>
-            <input id="step" type="number" min="1" value="1" style="width:80px"
-                   title="Прореживание данных: 1 — каждый замер; 2 — каждый второй; 10 — каждый десятый. Чем больше N, тем быстрее график и меньше размер экспорта, но ниже детализация."/>
-            <span id="stepAutoInfo" class="mini"></span>
-            <span class="qmark" title="Прореживание данных: 1 — каждый замер; 2 — каждый второй; 10 — каждый десятый. Чем больше N, тем быстрее график и меньше размер экспорта, но ниже детализация.">?</span>
-          </div>
-          <div class="helpText">
-            Авто-режим подбирает шаг так, чтобы точек было примерно как в выбранной цели. Вручную: 1 — все точки, 2 — каждая 2-я и т.д.
-          </div>
-
-          <div class="row2">
-            <label class="check"><input id="showLegend" type="checkbox" checked/> Легенда</label>
-          </div>
-
-          <div class="exportOptRow">
-            <label class="check"><input id="tplExtra" type="checkbox" checked/> доп. каналы (Z…)</label>
-            <span id="tplStatus" class="statusText"></span>
-          </div>
-
-          <div id="exportInfo" class="exportInfo">—</div>
-
-          <div class="row2">
-            <div class="rangeLine"><b>Выбранный интервал:</b> <span id="rangeText">—</span></div>
-          </div>
-
-          <div class="stylePanel">
+            <div class="stylePanel">
             <div class="styleTitle">Оформление экспорта (шаблон XLSX)</div>
 
             <div class="row2 colorFmtRow">
@@ -211,6 +178,41 @@
               Ниже min — цвет «низк.», в диапазоне min..opt (включая границы) — цвет «норма», выше opt — цвет «высок.»
             </div>
           </div>
+
+          <div class="row2 stepRow">
+            <label>Шаг:</label>
+            <label class="check"><input id="stepAuto" type="checkbox" checked/> Авто</label>
+            <select id="stepTarget" title="Целевое количество точек (примерно) для авто-шага">
+              <option value="5000" selected>≈ 5k точек</option>
+              <option value="10000">≈ 10k точек</option>
+              <option value="20000">≈ 20k точек</option>
+            </select>
+            <input id="step" type="number" min="1" value="1" style="width:80px"
+                   title="Прореживание данных: 1 — каждый замер; 2 — каждый второй; 10 — каждый десятый. Чем больше N, тем быстрее график и меньше размер экспорта, но ниже детализация."/>
+            <span id="stepAutoInfo" class="mini"></span>
+            <span class="qmark" title="Прореживание данных: 1 — каждый замер; 2 — каждый второй; 10 — каждый десятый. Чем больше N, тем быстрее график и меньше размер экспорта, но ниже детализация.">?</span>
+          </div>
+          <div class="helpText">
+            Авто-режим подбирает шаг так, чтобы точек было примерно как в выбранной цели. Вручную: 1 — все точки, 2 — каждая 2-я и т.д.
+          </div>
+
+          <div class="row2">
+            <label class="check"><input id="showLegend" type="checkbox" checked/> Легенда</label>
+             <label class="check"><input id="tplExtra" type="checkbox" checked/> доп. каналы (Z…)</label>
+            <span id="tplStatus" class="statusText"></span>
+          </div>
+
+          <div class="exportOptRow">
+
+          </div>
+
+          <div id="exportInfo" class="exportInfo">—</div>
+
+          <div class="row2">
+            <div class="rangeLine"><b>Выбранный интервал:</b> <span id="rangeText">—</span></div>
+          </div>
+
+
 
           <div class="hint">
             Интервал экспорта берётся из видимой области графика по оси X.
