@@ -178,28 +178,66 @@ button { padding: 7px 12px; cursor:pointer; }
 }
 .scaleGrid{display:flex;flex-direction:column;gap:8px;margin-top:6px;overflow-x:hidden;}
 
+
 .scaleRow{
   display:grid;
-  grid-template-columns: 16px minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: 150px minmax(0, 1fr) 110px 110px 110px;
   gap: 8px;
   align-items:center;
 }
 
 .scaleName{font-weight:bold;min-width:14px;}
-
-.scaleGroup{
-  display:grid;
-  grid-template-columns: 22px minmax(0, 1fr) 30px;
-  align-items:center;
-  gap: 4px;
-  min-width: 0;
-}
+.scaleNameLong{font-weight:600;white-space:nowrap;}
 
 .sgLabel{
   width:22px;
   text-align:right;
   font-size:11px;
   opacity:.85;
+}
+
+.sgLabelWide{
+  width:auto;
+  text-align:right;
+  font-size:11px;
+  opacity:.85;
+  white-space:nowrap;
+}
+
+.scaleRange{
+  display:grid;
+  grid-template-columns: 44px minmax(0, 1fr) 16px minmax(0, 1fr);
+  align-items:center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.scaleRange input[type=number]{
+  width: 100%;
+  min-width: 0;
+  padding:2px 4px;
+  font-size:11px;
+  box-sizing:border-box;
+  position:relative;
+  z-index:1;
+}
+
+.rangeDash{
+  text-align:center;
+  opacity:.7;
+  font-size:12px;
+}
+
+.scaleGroup{
+  display:grid;
+  align-items:center;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* группа с цветом: label + color + hex/rgb текст */
+.scaleGroup.scaleColor{
+  grid-template-columns: 44px 30px minmax(0, 1fr);
 }
 
 .scaleGroup input[type=number]{
@@ -210,6 +248,14 @@ button { padding: 7px 12px; cursor:pointer; }
   box-sizing:border-box;
   position:relative;
   z-index:1;
+}
+
+.scaleRange input[type=number]{
+  width: 100%;
+  min-width: 0;
+  padding:2px 4px;
+  font-size:11px;
+  box-sizing:border-box;
 }
 #rmColor{width:44px;height:28px;padding:0;border:1px solid #ddd;border-radius:6px;}
 #rmIntensity{width:100%;}
@@ -387,3 +433,26 @@ button { padding: 7px 12px; cursor:pointer; }
 .controlsBox .boxContent{overflow-x:hidden;}
 .exportBox .boxContent{overflow-x:hidden;}
 .rangeLine {font-size: 12px;}
+
+/* ===== FIX: Export styling (W/X/Y -> min/max/avg t) layout ===== */
+.scaleGrid{display:flex;flex-direction:column;gap:10px;margin-top:8px;}
+
+.scaleRow{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+
+.scaleName{font-weight:600;min-width:120px;white-space:nowrap;}
+
+.scaleNorm{display:flex;align-items:center;gap:6px;min-width:180px;}
+.scaleNorm input[type=number]{width:80px;min-width:80px;padding:2px 6px;font-size:12px;box-sizing:border-box;}
+
+.scaleColors{display:flex;align-items:flex-start;gap:12px;flex-wrap:nowrap;}
+
+.sg{font-size:11px;opacity:.85;white-space:nowrap;}
+
+.scaleColorGroup{display:grid;grid-template-columns:auto 34px;grid-template-rows:auto auto;column-gap:6px;row-gap:3px;align-items:center;min-width:110px;}
+.scaleColorGroup input[type=color]{width:34px;height:24px;padding:0;border:1px solid #d0d0d0;border-radius:6px;box-sizing:border-box;}
+.scaleColorGroup .clrCodeInput{grid-column:1 / span 2;grid-row:2;width:100%;min-width:0;padding:2px 6px;font-size:11px;line-height:1.2;border:1px solid #e5e5e5;border-radius:8px;background:#fafafa;box-sizing:border-box;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;}
+
+@media (max-width: 560px){
+  .scaleColors{flex-wrap:wrap;}
+  .scaleColorGroup{min-width:140px;}
+}

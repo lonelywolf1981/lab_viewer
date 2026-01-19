@@ -1930,7 +1930,7 @@ function initColorCodes(){
   }
 
   // 2) Colors in W/X/Y scales — поле под цветом
-  document.querySelectorAll('.scaleGroup input[type=color]').forEach(inp => {
+  document.querySelectorAll('.scaleGrid input[type=color]').forEach(inp => {
     if(inp.getAttribute('data-hascode') === '1') return;
     const ci = document.createElement('input');
     ci.type = 'text';
@@ -1948,6 +1948,11 @@ function initColorCodes(){
 }
 
 function _collectStyleSettingsFromUI() {
+  const _safeMax = (optVal, fallbackDelta=1) => {
+    const o = _num(optVal, 0);
+    // max не показываем в UI, но сервер ожидает opt < max
+    return o + fallbackDelta;
+  };
   return {
     row_mark: {
       threshold_T: _num(el('rmThreshold')?.value, 150),
@@ -1956,9 +1961,10 @@ function _collectStyleSettingsFromUI() {
     },
     scales: {
       W: {
-        min: _num(el('wMin')?.value, 0),
+        // min..opt = нормальный диапазон температуры
+        min: _num(el('wMin')?.value, -1),
         opt: _num(el('wOpt')?.value, 1),
-        max: _num(el('wMax')?.value, 2),
+        max: _safeMax(el('wOpt')?.value, 1),
         colors: {
           min: (el('wCMin')?.value || '#1CBCF2'),
           opt: (el('wCOpt')?.value || '#00FF00'),
@@ -1966,9 +1972,9 @@ function _collectStyleSettingsFromUI() {
         }
       },
       X: {
-        min: _num(el('xMin')?.value, 0),
-        opt: _num(el('xOpt')?.value, 9),
-        max: _num(el('xMax')?.value, 10),
+        min: _num(el('xMin')?.value, -1),
+        opt: _num(el('xOpt')?.value, 1),
+        max: _safeMax(el('xOpt')?.value, 1),
         colors: {
           min: (el('xCMin')?.value || '#1CBCF2'),
           opt: (el('xCOpt')?.value || '#00FF00'),
@@ -1976,9 +1982,9 @@ function _collectStyleSettingsFromUI() {
         }
       },
       Y: {
-        min: _num(el('yMin')?.value, 0),
-        opt: _num(el('yOpt')?.value, 5),
-        max: _num(el('yMax')?.value, 6),
+        min: _num(el('yMin')?.value, -1),
+        opt: _num(el('yOpt')?.value, 1),
+        max: _safeMax(el('yOpt')?.value, 1),
         colors: {
           min: (el('yCMin')?.value || '#1CBCF2'),
           opt: (el('yCOpt')?.value || '#00FF00'),
@@ -1999,9 +2005,10 @@ function _applyStyleSettingsToUI(s) {
 
   const sc = s.scales || {};
   const w = sc.W || {}; const x = sc.X || {}; const y = sc.Y || {};
-  _set('wMin', w.min ?? 0); _set('wOpt', w.opt ?? 1); _set('wMax', w.max ?? 2);
-  _set('xMin', x.min ?? 0); _set('xOpt', x.opt ?? 9); _set('xMax', x.max ?? 10);
-  _set('yMin', y.min ?? 0); _set('yOpt', y.opt ?? 5); _set('yMax', y.max ?? 6);
+  // min..opt = нормальный диапазон температуры
+  _set('wMin', w.min ?? -1); _set('wOpt', w.opt ?? 1);
+  _set('xMin', x.min ?? -1); _set('xOpt', x.opt ?? 1);
+  _set('yMin', y.min ?? -1); _set('yOpt', y.opt ?? 1);
 
   const wc = (w.colors || {});
   const xc = (x.colors || {});

@@ -79,11 +79,16 @@ PRESETS_DIR = os.path.join(os.path.dirname(__file__), 'saved_presets')
 # {
 #   "row_mark": {"threshold_T": 150, "color": "#FFF2CC", "intensity": 100},
 #   "scales": {
-#     "W": {"min": 0, "opt": 1, "max": 2},
-#     "X": {"min": 0, "opt": 9, "max": 18},
-#     "Y": {"min": 0, "opt": 5, "max": 10}
+#     "W": {"min": -1, "opt": 1, "colors": {"min": "#1CBCF2", "opt": "#00FF00", "max": "#F3919B"}},
+#     "X": {"min": -1, "opt": 1, "colors": {"min": "#1CBCF2", "opt": "#00FF00", "max": "#F3919B"}},
+#     "Y": {"min": -1, "opt": 1, "colors": {"min": "#1CBCF2", "opt": "#00FF00", "max": "#F3919B"}}
 #   }
 # }
+# Для W/X/Y:
+#   - min..opt (включая границы) = нормальный диапазон температуры
+#   - ниже min  -> цвет colors.min
+#   - в норме   -> цвет colors.opt
+#   - выше opt  -> цвет colors.max
 # intensity: 0..100 (0 = белый, 100 = выбранный цвет)
 SETTINGS_FILE = os.path.join(os.path.dirname(__file__), 'viewer_settings.json')
 
@@ -93,9 +98,9 @@ DEFAULT_VIEWER_SETTINGS: Dict[str, Any] = {
         'color': '#EAD706',  # мягкий жёлтый (как в примере)
         'intensity': 100,
     },
-    'scales': {'W': {'min': 0, 'opt': 1, 'max': 2, 'colors': {'min': '#1CBCF2', 'opt': '#00FF00', 'max': '#F3919B'}},
-               'X': {'min': 0, 'opt': 9, 'max': 10, 'colors': {'min': '#1CBCF2', 'opt': '#00FF00', 'max': '#F3919B'}},
-               'Y': {'min': 0, 'opt': 5, 'max': 6, 'colors': {'min': '#1CBCF2', 'opt': '#00FF00', 'max': '#F3919B'}},
+    'scales': {'W': {'min': -1, 'opt': 1, 'max': 2, 'colors': {'min': '#1CBCF2', 'opt': '#00FF00', 'max': '#F3919B'}},
+               'X': {'min': -1, 'opt': 1, 'max': 2, 'colors': {'min': '#1CBCF2', 'opt': '#00FF00', 'max': '#F3919B'}},
+               'Y': {'min': -1, 'opt': 1, 'max': 2, 'colors': {'min': '#1CBCF2', 'opt': '#00FF00', 'max': '#F3919B'}},
                },
 }
 

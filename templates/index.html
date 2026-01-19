@@ -186,62 +186,52 @@
             </div>
 
             <div class="scaleGrid">
+
               <div class="scaleRow">
-                <div class="scaleName">W</div>
-                <div class="scaleGroup">
-                  <span class="sgLabel">min</span>
-                  <input id="wMin" type="number" step="0.1"/>
-                  <input id="wCMin" type="color" title="Цвет min"/>
+                <div class="scaleName">min t в объёме</div>
+                <div class="scaleNorm">
+                  <span class="sg">норма от</span>
+                  <input id="wMin" type="number" step="0.1" title="Нижняя граница нормы"/>
+                  <span class="sg">до</span>
+                  <input id="wOpt" type="number" step="0.1" title="Верхняя граница нормы"/>
                 </div>
-                <div class="scaleGroup">
-                  <span class="sgLabel">opt</span>
-                  <input id="wOpt" type="number" step="0.1"/>
-                  <input id="wCOpt" type="color" title="Цвет opt"/>
-                </div>
-                <div class="scaleGroup">
-                  <span class="sgLabel">max</span>
-                  <input id="wMax" type="number" step="0.1"/>
-                  <input id="wCMax" type="color" title="Цвет max"/>
+                <div class="scaleColors">
+                  <div class="scaleColorGroup"><span class="sg">низк.</span><input id="wCMin" type="color" title="Цвет: ниже нормы"/></div>
+                  <div class="scaleColorGroup"><span class="sg">норма</span><input id="wCOpt" type="color" title="Цвет: в норме"/></div>
+                  <div class="scaleColorGroup"><span class="sg">высок.</span><input id="wCMax" type="color" title="Цвет: выше нормы"/></div>
                 </div>
               </div>
 
               <div class="scaleRow">
-                <div class="scaleName">X</div>
-                <div class="scaleGroup">
-                  <span class="sgLabel">min</span>
-                  <input id="xMin" type="number" step="0.1"/>
-                  <input id="xCMin" type="color" title="Цвет min"/>
+                <div class="scaleName">max t в объёме</div>
+                <div class="scaleNorm">
+                  <span class="sg">норма от</span>
+                  <input id="xMin" type="number" step="0.1" title="Нижняя граница нормы"/>
+                  <span class="sg">до</span>
+                  <input id="xOpt" type="number" step="0.1" title="Верхняя граница нормы"/>
                 </div>
-                <div class="scaleGroup">
-                  <span class="sgLabel">opt</span>
-                  <input id="xOpt" type="number" step="0.1"/>
-                  <input id="xCOpt" type="color" title="Цвет opt"/>
-                </div>
-                <div class="scaleGroup">
-                  <span class="sgLabel">max</span>
-                  <input id="xMax" type="number" step="0.1"/>
-                  <input id="xCMax" type="color" title="Цвет max"/>
+                <div class="scaleColors">
+                  <div class="scaleColorGroup"><span class="sg">низк.</span><input id="xCMin" type="color" title="Цвет: ниже нормы"/></div>
+                  <div class="scaleColorGroup"><span class="sg">норма</span><input id="xCOpt" type="color" title="Цвет: в норме"/></div>
+                  <div class="scaleColorGroup"><span class="sg">высок.</span><input id="xCMax" type="color" title="Цвет: выше нормы"/></div>
                 </div>
               </div>
 
               <div class="scaleRow">
-                <div class="scaleName">Y</div>
-                <div class="scaleGroup">
-                  <span class="sgLabel">min</span>
-                  <input id="yMin" type="number" step="0.1"/>
-                  <input id="yCMin" type="color" title="Цвет min"/>
+                <div class="scaleName">сред t в объёме</div>
+                <div class="scaleNorm">
+                  <span class="sg">норма от</span>
+                  <input id="yMin" type="number" step="0.1" title="Нижняя граница нормы"/>
+                  <span class="sg">до</span>
+                  <input id="yOpt" type="number" step="0.1" title="Верхняя граница нормы"/>
                 </div>
-                <div class="scaleGroup">
-                  <span class="sgLabel">opt</span>
-                  <input id="yOpt" type="number" step="0.1"/>
-                  <input id="yCOpt" type="color" title="Цвет opt"/>
-                </div>
-                <div class="scaleGroup">
-                  <span class="sgLabel">max</span>
-                  <input id="yMax" type="number" step="0.1"/>
-                  <input id="yCMax" type="color" title="Цвет max"/>
+                <div class="scaleColors">
+                  <div class="scaleColorGroup"><span class="sg">низк.</span><input id="yCMin" type="color" title="Цвет: ниже нормы"/></div>
+                  <div class="scaleColorGroup"><span class="sg">норма</span><input id="yCOpt" type="color" title="Цвет: в норме"/></div>
+                  <div class="scaleColorGroup"><span class="sg">высок.</span><input id="yCMax" type="color" title="Цвет: выше нормы"/></div>
                 </div>
               </div>
+
             </div>
 
             <div class="row2">
@@ -251,7 +241,8 @@
 
             <div class="hint mini">
               Эти настройки сохраняются в viewer_settings.json и применяются к следующей выгрузке «В шаблон XLSX».
-              W/X/Y независимы от других ячеек: используются пороги min и opt. Ниже min — цвет min, между min и opt (включая границы) — цвет opt, выше opt — цвет max.
+              min/max/сред t в объёме задаются независимо: укажи «нормальный диапазон» (min..opt).
+              Ниже min — цвет «низк.», в диапазоне min..opt (включая границы) — цвет «норма», выше opt — цвет «высок.»
             </div>
           </div>
 
