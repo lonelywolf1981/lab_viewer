@@ -89,7 +89,7 @@
           <div class="boxContent listContent">
             <ul id="channelList" class="chanList" tabindex="0"></ul>
           </div>
-          <div class="hint">Выбор как в Windows: клик — выбрать, Ctrl+клик — добавить/убрать, Shift+клик — диапазон. Двойной клик — оставить только этот канал. Перетаскивание: тяни за «≡». Если тянуть канал из выделения — переносится вся выделенная группа.</div>
+          <div class="hint">Выбор как в Windows: клик — выбрать, Ctrl+клик — добавить/убрать, Shift+клик — диапазон. Двойной клик — оставить только этот канал.</div>
         </div>
 
         <!-- 3) Диапазон / Экспорт -->
@@ -118,16 +118,10 @@
             <label class="check"><input id="showLegend" type="checkbox" checked/> Легенда</label>
           </div>
 
-          <div class="exportBtnRow">
-  <button id="btnCsv">Экспорт CSV</button>
-  <button id="btnXlsx">Экспорт Excel</button>
-  <button id="btnTpl">В шаблон XLSX</button>
-</div>
-
-<div class="exportOptRow">
-  <label class="check"><input id="tplExtra" type="checkbox" checked/> доп. каналы (Z…)</label>
-  <span id="tplStatus" class="statusText"></span>
-</div>
+          <div class="exportOptRow">
+            <label class="check"><input id="tplExtra" type="checkbox" checked/> доп. каналы (Z…)</label>
+            <span id="tplStatus" class="statusText"></span>
+          </div>
 
           <div id="exportInfo" class="exportInfo">—</div>
 
@@ -224,6 +218,10 @@
           <div class="hint">
             Интервал экспорта берётся из видимой области графика по оси X.
             Увеличь/уменьши масштаб (выделением мышью или колесом). Текущий интервал покажу справа. Также можно двигать range-slider снизу.
+          </div>
+
+          <div class="exportBottomBar">
+            <button id="btnTpl" type="button">В шаблон XLSX</button>
           </div>
           </div>
         </div>
