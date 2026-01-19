@@ -4,7 +4,7 @@
   <meta charset="utf-8"/>
   <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>LeMuRe Viewer</title>
+  <title>ИЛХО Viewer</title>
   <link rel="stylesheet" href="/static/style.css?v={{asset_v}}"/>
   <!-- Plotly через CDN (если интернет закрыт — скажи, сделаю офлайн-версию с локальным plotly.js) -->
   <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
@@ -12,7 +12,7 @@
 <body>
   <div class="wrap">
     <header>
-      <h1>LeMuRe Viewer</h1>
+      <h1>ИЛХО Viewer</h1>
       <div class="sub">Локальный просмотрщик Prova*.dbf. Порт: {{port}}</div>
     </header>
 
@@ -251,7 +251,7 @@
 
             <div class="hint mini">
               Эти настройки сохраняются в viewer_settings.json и применяются к следующей выгрузке «В шаблон XLSX».
-              Шкала W/X/Y независима от других ячеек: используются фиксированные min/opt/max.
+              W/X/Y независимы от других ячеек: используется порог opt. Ниже opt — цвет min, равно opt — цвет opt, выше opt — цвет max.
             </div>
           </div>
 

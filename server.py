@@ -90,12 +90,12 @@ SETTINGS_FILE = os.path.join(os.path.dirname(__file__), 'viewer_settings.json')
 DEFAULT_VIEWER_SETTINGS: Dict[str, Any] = {
     'row_mark': {
         'threshold_T': 150,
-        'color': '#FFF2CC',  # мягкий жёлтый (как в примере)
+        'color': '#EAD706',  # мягкий жёлтый (как в примере)
         'intensity': 100,
     },
-    'scales': {'W': {'min': 0, 'opt': 1, 'max': 2, 'colors': {'min': '#0000FF', 'opt': '#00FF00', 'max': '#FF0000'}},
-               'X': {'min': 0, 'opt': 9, 'max': 18, 'colors': {'min': '#0000FF', 'opt': '#00FF00', 'max': '#FF0000'}},
-               'Y': {'min': 0, 'opt': 5, 'max': 10, 'colors': {'min': '#0000FF', 'opt': '#00FF00', 'max': '#FF0000'}},
+    'scales': {'W': {'min': 0, 'opt': 1, 'max': 2, 'colors': {'min': '#007BFF', 'opt': '#00FF00', 'max': '#FE3448'}},
+               'X': {'min': 0, 'opt': 9, 'max': 10, 'colors': {'min': '#007BFF', 'opt': '#00FF00', 'max': '#FE3448'}},
+               'Y': {'min': 0, 'opt': 5, 'max': 6, 'colors': {'min': '#007BFF', 'opt': '#00FF00', 'max': '#FE3448'}},
                },
 }
 
@@ -1425,20 +1425,19 @@ def _api_export_template_impl():
                 ws.cell(row=r, column=c).value = None
 
         # ---------------- Conditional formatting (beauty rules) ----------------
-        # 1) Если в колонке T (на этой же строке) значение < 150,
-        #    то закрасить диапазон B..P этой строки жёлтым.
-        # 2) Для колонок W/X/Y применить независимую (от других ячеек) шкалу цветов:
-        #    ниже порога -> синее, на пороге -> зелёное, выше -> краснее.
-        #    (Важный момент: start/end заданы фиксированными числами, а не min/max диапазона.)
+        # Дискретная раскраска (без градиентов):
+        # 1) Если в колонке T (на этой же строке) значение < threshold_T,
+        #    то закрасить диапазон B..P этой строки цветом row_mark.color (с учётом intensity).
+        # 2) Для колонок W/X/Y: ниже opt -> colors.min, равно opt -> colors.opt, выше opt -> colors.max.
         try:
             from openpyxl.styles import PatternFill
-            from openpyxl.formatting.rule import FormulaRule, ColorScaleRule
+            from openpyxl.formatting.rule import FormulaRule
 
             first_r = start_row
             last_r = start_row + len(idxs) - 1
 
             if last_r >= first_r:
-                # Row highlight (B..P) if column T is below threshold
+                # --- 1) Row highlight (B..P) if column T is below threshold ---
                 rm = VIEWER_SETTINGS.get('row_mark') if isinstance(VIEWER_SETTINGS.get('row_mark'), dict) else {}
                 thr = rm.get('threshold_T', 150)
                 try:
@@ -1447,65 +1446,79 @@ def _api_export_template_impl():
                 except Exception:
                     thr = 150
 
-                color_hex = str(rm.get('color') or '#FFF2CC')
+                color_hex = str(rm.get('color') or '#EAD706')
                 intensity = rm.get('intensity', 100)
                 try:
                     intensity = int(intensity)
                 except Exception:
                     intensity = 100
-                fill_argb = _argb_from_hex_and_intensity(color_hex, intensity)
 
-                row_fill = PatternFill(fill_type="solid", start_color=fill_argb, end_color=fill_argb)
+                fill_argb = _argb_from_hex_and_intensity(color_hex, intensity)
+                row_fill = PatternFill(fill_type='solid', start_color=fill_argb, end_color=fill_argb)
+
                 rng_row = f"B{first_r}:P{last_r}"
-                # Lock column T, keep row relative; stopIfTrue gives this rule priority over template rules.
+                # Lock column T, keep row relative.
                 rule_row = FormulaRule(formula=[f"$T{first_r}<{thr}"], fill=row_fill, stopIfTrue=True)
+                try:
+                    rule_row.priority = 1
+                except Exception:
+                    pass
                 ws.conditional_formatting.add(rng_row, rule_row)
 
-                # Independent (fixed) 3-color scales for W / X / Y: blue -> green(opt) -> red
+                # --- 2) W/X/Y discrete coloring by opt ---
                 scales = VIEWER_SETTINGS.get('scales') if isinstance(VIEWER_SETTINGS.get('scales'), dict) else {}
 
-                def _add_scale(col_letter: str) -> None:
-                    spec = scales.get(col_letter) if isinstance(scales.get(col_letter), dict) else {}
-                    try:
-                        vmin = float(spec.get('min'))
-                        vopt = float(spec.get('opt'))
-                        vmax = float(spec.get('max'))
-                    except Exception:
-                        d = DEFAULT_VIEWER_SETTINGS['scales'][col_letter]
-                        vmin, vopt, vmax = float(d['min']), float(d['opt']), float(d['max'])
-                    # Guard against degenerate/incorrect values
-                    if vmin >= vopt:
-                        vmin = vopt - 1
-                    if vopt >= vmax:
-                        vmax = vopt + 1
+                def _hex_to_argb(hx: str, default: str) -> str:
+                    hx = _normalize_hex_color(str(hx or ''), default=default)
+                    return 'FF' + hx[1:].upper()
 
-                    # Colors from settings (independent per column)
+                def _fmt_num(x) -> str:
+                    try:
+                        xf = float(x)
+                        if xf.is_integer():
+                            return str(int(xf))
+                        # Excel uses dot for decimals
+                        return (f"{xf:g}").replace(',', '.')
+                    except Exception:
+                        return str(x)
+
+                def _add_discrete(col_letter: str, base_prio: int) -> None:
+                    spec = scales.get(col_letter) if isinstance(scales.get(col_letter), dict) else {}
+                    dflt = DEFAULT_VIEWER_SETTINGS['scales'][col_letter]
+
+                    opt = spec.get('opt', dflt.get('opt'))
+                    opt_s = _fmt_num(opt)
 
                     colors = spec.get('colors') if isinstance(spec.get('colors'), dict) else {}
+                    dcolors = dflt.get('colors') if isinstance(dflt.get('colors'), dict) else {}
 
-                    def _rgb6(v, default):
+                    c_lo = _hex_to_argb(colors.get('min'), dcolors.get('min', '#007BFF'))
+                    c_eq = _hex_to_argb(colors.get('opt'), dcolors.get('opt', '#00FF00'))
+                    c_hi = _hex_to_argb(colors.get('max'), dcolors.get('max', '#FE3448'))
 
-                        hx = _normalize_hex_color(str(v or ''), default=default)
+                    f_lo = PatternFill(fill_type='solid', start_color=c_lo, end_color=c_lo)
+                    f_eq = PatternFill(fill_type='solid', start_color=c_eq, end_color=c_eq)
+                    f_hi = PatternFill(fill_type='solid', start_color=c_hi, end_color=c_hi)
 
-                        return hx[1:]
+                    rng = f"{col_letter}{first_r}:{col_letter}{last_r}"
+                    # Column locked, row relative.
+                    r1 = FormulaRule(formula=[f"${col_letter}{first_r}<{opt_s}"], fill=f_lo, stopIfTrue=True)
+                    r2 = FormulaRule(formula=[f"${col_letter}{first_r}={opt_s}"], fill=f_eq, stopIfTrue=True)
+                    r3 = FormulaRule(formula=[f"${col_letter}{first_r}>{opt_s}"], fill=f_hi, stopIfTrue=True)
+                    try:
+                        r1.priority = base_prio
+                        r2.priority = base_prio + 1
+                        r3.priority = base_prio + 2
+                    except Exception:
+                        pass
+                    ws.conditional_formatting.add(rng, r1)
+                    ws.conditional_formatting.add(rng, r2)
+                    ws.conditional_formatting.add(rng, r3)
 
-                    col_min = _rgb6(colors.get('min'), '#0000FF')
-
-                    col_opt = _rgb6(colors.get('opt'), '#00FF00')
-
-                    col_max = _rgb6(colors.get('max'), '#FF0000')
-
-                    ws.conditional_formatting.add(
-                        f"{col_letter}{first_r}:{col_letter}{last_r}",
-                        ColorScaleRule(
-                            start_type="num", start_value=vmin, start_color=col_min,
-                            mid_type="num", mid_value=vopt, mid_color=col_opt,
-                            end_type="num", end_value=vmax, end_color=col_max,
-                        ),
-                    )
-
-                for _col in ('W', 'X', 'Y'):
-                    _add_scale(_col)
+                # priorities are global in sheet; keep ranges separated by gaps
+                _add_discrete('W', 10)
+                _add_discrete('X', 20)
+                _add_discrete('Y', 30)
         except Exception as _cf_e:
             try:
                 print("[TEMPLATE] conditional formatting skipped:", _cf_e)
