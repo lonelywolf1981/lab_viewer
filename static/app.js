@@ -1946,9 +1946,9 @@ function _collectStyleSettingsFromUI() {
         opt: _num(el('wOpt')?.value, 1),
         max: _num(el('wMax')?.value, 2),
         colors: {
-          min: (el('wCMin')?.value || '#007BFF'),
+          min: (el('wCMin')?.value || '#1CBCF2'),
           opt: (el('wCOpt')?.value || '#00FF00'),
-          max: (el('wCMax')?.value || '#FE3448'),
+          max: (el('wCMax')?.value || '#F3919B'),
         }
       },
       X: {
@@ -1956,9 +1956,9 @@ function _collectStyleSettingsFromUI() {
         opt: _num(el('xOpt')?.value, 9),
         max: _num(el('xMax')?.value, 10),
         colors: {
-          min: (el('xCMin')?.value || '#007BFF'),
+          min: (el('xCMin')?.value || '#1CBCF2'),
           opt: (el('xCOpt')?.value || '#00FF00'),
-          max: (el('xCMax')?.value || '#FE3448'),
+          max: (el('xCMax')?.value || '#F3919B'),
         }
       },
       Y: {
@@ -1966,9 +1966,9 @@ function _collectStyleSettingsFromUI() {
         opt: _num(el('yOpt')?.value, 5),
         max: _num(el('yMax')?.value, 6),
         colors: {
-          min: (el('yCMin')?.value || '#007BFF'),
+          min: (el('yCMin')?.value || '#1CBCF2'),
           opt: (el('yCOpt')?.value || '#00FF00'),
-          max: (el('yCMax')?.value || '#FE3448'),
+          max: (el('yCMax')?.value || '#F3919B'),
         }
       }
     }
@@ -1992,9 +1992,9 @@ function _applyStyleSettingsToUI(s) {
   const wc = (w.colors || {});
   const xc = (x.colors || {});
   const yc = (y.colors || {});
-  _set('wCMin', wc.min || '#007BFF'); _set('wCOpt', wc.opt || '#00FF00'); _set('wCMax', wc.max || '#FE3448');
-  _set('xCMin', xc.min || '#007BFF'); _set('xCOpt', xc.opt || '#00FF00'); _set('xCMax', xc.max || '#FE3448');
-  _set('yCMin', yc.min || '#007BFF'); _set('yCOpt', yc.opt || '#00FF00'); _set('yCMax', yc.max || '#FE3448');
+  _set('wCMin', wc.min || '#1CBCF2'); _set('wCOpt', wc.opt || '#00FF00'); _set('wCMax', wc.max || '#F3919B');
+  _set('xCMin', xc.min || '#1CBCF2'); _set('xCOpt', xc.opt || '#00FF00'); _set('xCMax', xc.max || '#F3919B');
+  _set('yCMin', yc.min || '#1CBCF2'); _set('yCOpt', yc.opt || '#00FF00'); _set('yCMax', yc.max || '#F3919B');
 
   // если значения выставлены программно — обновим подписи
   try{ refreshColorCodes(); } catch(e) {}

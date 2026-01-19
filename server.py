@@ -93,9 +93,9 @@ DEFAULT_VIEWER_SETTINGS: Dict[str, Any] = {
         'color': '#EAD706',  # мягкий жёлтый (как в примере)
         'intensity': 100,
     },
-    'scales': {'W': {'min': 0, 'opt': 1, 'max': 2, 'colors': {'min': '#007BFF', 'opt': '#00FF00', 'max': '#FE3448'}},
-               'X': {'min': 0, 'opt': 9, 'max': 10, 'colors': {'min': '#007BFF', 'opt': '#00FF00', 'max': '#FE3448'}},
-               'Y': {'min': 0, 'opt': 5, 'max': 6, 'colors': {'min': '#007BFF', 'opt': '#00FF00', 'max': '#FE3448'}},
+    'scales': {'W': {'min': 0, 'opt': 1, 'max': 2, 'colors': {'min': '#1CBCF2', 'opt': '#00FF00', 'max': '#F3919B'}},
+               'X': {'min': 0, 'opt': 9, 'max': 10, 'colors': {'min': '#1CBCF2', 'opt': '#00FF00', 'max': '#F3919B'}},
+               'Y': {'min': 0, 'opt': 5, 'max': 6, 'colors': {'min': '#1CBCF2', 'opt': '#00FF00', 'max': '#F3919B'}},
                },
 }
 
@@ -1428,7 +1428,7 @@ def _api_export_template_impl():
         # Дискретная раскраска (без градиентов):
         # 1) Если в колонке T (на этой же строке) значение < threshold_T,
         #    то закрасить диапазон B..P этой строки цветом row_mark.color (с учётом intensity).
-        # 2) Для колонок W/X/Y: ниже opt -> colors.min, равно opt -> colors.opt, выше opt -> colors.max.
+        # 2) Для колонок W/X/Y: ниже min -> colors.min, между min..opt -> colors.opt, выше opt -> colors.max.
         try:
             from openpyxl.styles import PatternFill
             from openpyxl.formatting.rule import FormulaRule
@@ -1465,7 +1465,7 @@ def _api_export_template_impl():
                     pass
                 ws.conditional_formatting.add(rng_row, rule_row)
 
-                # --- 2) W/X/Y discrete coloring by opt ---
+                # --- 2) W/X/Y discrete coloring by min/opt ---
                 scales = VIEWER_SETTINGS.get('scales') if isinstance(VIEWER_SETTINGS.get('scales'), dict) else {}
 
                 def _hex_to_argb(hx: str, default: str) -> str:
@@ -1486,25 +1486,57 @@ def _api_export_template_impl():
                     spec = scales.get(col_letter) if isinstance(scales.get(col_letter), dict) else {}
                     dflt = DEFAULT_VIEWER_SETTINGS['scales'][col_letter]
 
-                    opt = spec.get('opt', dflt.get('opt'))
-                    opt_s = _fmt_num(opt)
+                    vmin = spec.get('min', dflt.get('min'))
+                    vopt = spec.get('opt', dflt.get('opt'))
+
+                    try:
+                        vmin_f = float(vmin)
+                    except Exception:
+                        vmin_f = float(dflt.get('min') or 0)
+                    try:
+                        vopt_f = float(vopt)
+                    except Exception:
+                        vopt_f = float(dflt.get('opt') or 0)
+
+                    # Guard against swapped/degenerate values
+                    if vmin_f > vopt_f:
+                        vmin_f, vopt_f = vopt_f, vmin_f
+
+                    min_s = _fmt_num(vmin_f)
+                    opt_s = _fmt_num(vopt_f)
 
                     colors = spec.get('colors') if isinstance(spec.get('colors'), dict) else {}
                     dcolors = dflt.get('colors') if isinstance(dflt.get('colors'), dict) else {}
 
-                    c_lo = _hex_to_argb(colors.get('min'), dcolors.get('min', '#007BFF'))
-                    c_eq = _hex_to_argb(colors.get('opt'), dcolors.get('opt', '#00FF00'))
-                    c_hi = _hex_to_argb(colors.get('max'), dcolors.get('max', '#FE3448'))
+                    # < min      -> colors.min
+                    # min..opt   -> colors.opt
+                    # > opt      -> colors.max
+                    c_lo = _hex_to_argb(colors.get('min'), dcolors.get('min', '#1CBCF2'))
+                    c_mid = _hex_to_argb(colors.get('opt'), dcolors.get('opt', '#00FF00'))
+                    c_hi = _hex_to_argb(colors.get('max'), dcolors.get('max', '#F3919B'))
 
                     f_lo = PatternFill(fill_type='solid', start_color=c_lo, end_color=c_lo)
-                    f_eq = PatternFill(fill_type='solid', start_color=c_eq, end_color=c_eq)
+                    f_mid = PatternFill(fill_type='solid', start_color=c_mid, end_color=c_mid)
                     f_hi = PatternFill(fill_type='solid', start_color=c_hi, end_color=c_hi)
 
                     rng = f"{col_letter}{first_r}:{col_letter}{last_r}"
+
                     # Column locked, row relative.
-                    r1 = FormulaRule(formula=[f"${col_letter}{first_r}<{opt_s}"], fill=f_lo, stopIfTrue=True)
-                    r2 = FormulaRule(formula=[f"${col_letter}{first_r}={opt_s}"], fill=f_eq, stopIfTrue=True)
-                    r3 = FormulaRule(formula=[f"${col_letter}{first_r}>{opt_s}"], fill=f_hi, stopIfTrue=True)
+                    r1 = FormulaRule(
+                        formula=[f'AND(${col_letter}{first_r}<>"",${col_letter}{first_r}<{min_s})'],
+                        fill=f_lo,
+                        stopIfTrue=True,
+                    )
+                    r2 = FormulaRule(
+                        formula=[f'AND(${col_letter}{first_r}<>"",${col_letter}{first_r}>={min_s},${col_letter}{first_r}<={opt_s})'],
+                        fill=f_mid,
+                        stopIfTrue=True,
+                    )
+                    r3 = FormulaRule(
+                        formula=[f'AND(${col_letter}{first_r}<>"",${col_letter}{first_r}>{opt_s})'],
+                        fill=f_hi,
+                        stopIfTrue=True,
+                    )
                     try:
                         r1.priority = base_prio
                         r2.priority = base_prio + 1
@@ -1519,6 +1551,7 @@ def _api_export_template_impl():
                 _add_discrete('W', 10)
                 _add_discrete('X', 20)
                 _add_discrete('Y', 30)
+
         except Exception as _cf_e:
             try:
                 print("[TEMPLATE] conditional formatting skipped:", _cf_e)
