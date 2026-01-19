@@ -83,6 +83,7 @@ let saveOrderTimer = null;
 
 let selected = new Set();     // selected channel codes (like <select multiple>)
 let anchorCode = null;        // last clicked code (for Shift selection)
+let dragData = null;          // data for dragging multiple selected items
 
 const el = (id) => document.getElementById(id);
 const log = (msg) => {
@@ -995,16 +996,62 @@ function renderChannelList(arr, keepSelection=true, pruneSelection=true) {
         else toast('Перетаскивание отключено', 'Снимите фильтры (поиск/чипы/только выбранные) и попробуйте снова', 'warn', 5000);
         return;
       }
+
+      // Collect all selected items for dragging
+      const list = el("channelList");
+      const allItems = Array.from(list.querySelectorAll(".chanItem"));
+      const selectedItems = allItems.filter(item => {
+        const code = item.getAttribute("data-code");
+        return selected.has(code);
+      });
+
+      // Store drag data
+      dragData = {
+        draggedCode: ch.code,
+        selectedItems: selectedItems
+      };
+
       li.classList.add("dragging");
       ev.dataTransfer.setData("text/plain", ch.code);
       ev.dataTransfer.effectAllowed = "move";
       if(ev.dataTransfer.setDragImage) {
-        try { ev.dataTransfer.setDragImage(li, 20, 12); } catch(_) {}
+        // If multiple items are selected, create a custom drag image indicating this
+        if(selected.size > 1) {
+          // Create a temporary element to show the number of selected items
+          const dragPreview = document.createElement("div");
+          dragPreview.style.position = "absolute";
+          dragPreview.style.left = "-9999px";
+          dragPreview.style.backgroundColor = "#eaf2ff";
+          dragPreview.style.border = "2px solid #7aa7ff";
+          dragPreview.style.borderRadius = "4px";
+          dragPreview.style.padding = "8px";
+          dragPreview.style.fontSize = "14px";
+          dragPreview.style.fontFamily = "Arial, sans-serif";
+          dragPreview.style.zIndex = "9999";
+          dragPreview.innerHTML = `${selected.size} элементов`;
+
+          document.body.appendChild(dragPreview);
+          try {
+            ev.dataTransfer.setDragImage(dragPreview, 10, 10);
+            // Clean up the temporary element after a short delay
+            setTimeout(() => {
+              if(dragPreview.parentNode) {
+                dragPreview.parentNode.removeChild(dragPreview);
+              }
+            }, 100);
+          } catch(_) {
+            // Fallback to original behavior
+            try { ev.dataTransfer.setDragImage(li, 20, 12); } catch(_) {}
+          }
+        } else {
+          try { ev.dataTransfer.setDragImage(li, 20, 12); } catch(_) {}
+        }
       }
     });
     handle.addEventListener("dragend", () => {
       li.classList.remove("dragging");
       list.querySelectorAll(".chanItem").forEach(x => x.classList.remove("dragOver"));
+      dragData = null; // Clear drag data
     });
 
     // Drag over/drop on row
@@ -1019,7 +1066,13 @@ function renderChannelList(arr, keepSelection=true, pruneSelection=true) {
       li.classList.remove("dragOver");
       const draggedCode = ev.dataTransfer.getData("text/plain");
       if(!draggedCode || draggedCode === ch.code) return;
-      moveCodeBefore(draggedCode, ch.code);
+
+      // Check if we have multiple selected items to drag
+      if(dragData && dragData.selectedItems && dragData.selectedItems.length > 1) {
+        moveSelectedCodesBefore(draggedCode, ch.code);
+      } else {
+        moveCodeBefore(draggedCode, ch.code);
+      }
     });
 
     list.appendChild(li);
@@ -1055,6 +1108,44 @@ function moveCodeBefore(draggedCode, targetCode) {
   if(!dragged || !target) return;
 
   list.insertBefore(dragged, target);
+  refreshSelectionUI();
+
+  // Dragging means "custom" order now
+  setSortMode("custom");
+  scheduleSaveOrder();
+  scheduleSaveLastState();
+}
+
+// Move all selected codes before the target code
+function moveSelectedCodesBefore(draggedCode, targetCode) {
+  const list = el("channelList");
+  const items = Array.from(list.querySelectorAll(".chanItem"));
+
+  const target = items.find(li => li.getAttribute("data-code") === targetCode);
+  if(!target) return;
+
+  // Find all selected items
+  const selectedItems = items.filter(item => {
+    const code = item.getAttribute("data-code");
+    return selected.has(code);
+  });
+
+  // If only one item is selected, use the original function
+  if(selectedItems.length <= 1) {
+    moveCodeBefore(draggedCode, targetCode);
+    return;
+  }
+
+  // Sort selected items by their current position in the list to preserve their relative order
+  const sortedSelectedItems = selectedItems.sort((a, b) => {
+    return items.indexOf(a) - items.indexOf(b);
+  });
+
+  // Insert all selected items before the target
+  sortedSelectedItems.forEach(item => {
+    list.insertBefore(item, target);
+  });
+
   refreshSelectionUI();
 
   // Dragging means "custom" order now
