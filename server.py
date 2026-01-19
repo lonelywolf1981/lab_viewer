@@ -2,7 +2,7 @@ from __future__ import annotations
 
 
 def log_exception_to_file(prefix: str, exc: Exception) -> str:
-    """Write traceback to a local file and return that file path."""
+    """Write traceback to a local file and return that file path.."""
     import traceback as _tb
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
