@@ -271,7 +271,10 @@
   <div id="busyOverlay" class="overlay hidden" aria-hidden="true">
     <div class="overlayBox">
       <div class="spinnerLarge"></div>
-      <div id="busyText" class="overlayText">Работаю…</div>
+      <div class="overlayTextWrap">
+        <div id="busyText" class="overlayText">Работаю…</div>
+        <div id="busyTimer" class="overlayTimer"></div>
+      </div>
     </div>
   </div>
   <div id="toastContainer" class="toastContainer" aria-live="polite" aria-atomic="true"></div>

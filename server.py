@@ -2,7 +2,7 @@ from __future__ import annotations
 
 
 def log_exception_to_file(prefix: str, exc: Exception) -> str:
-    """Write traceback to a local file and return that file path.."""
+    """Write traceback to a local file and return that file path."""
     import traceback as _tb
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -1212,12 +1212,15 @@ def _api_export_template_impl():
 
         t_all0 = time_mod.perf_counter()
 
-        # ОПТИМИЗАЦИЯ 1: Отключаем data_only для ускорения
+        # Загружаем шаблон (data_only=False: формулы сохраняем)
         wb = load_workbook(template_path, data_only=False, keep_vba=False)
         ws = wb.active
 
-        # ОПТИМИЗАЦИЯ 2: Отключаем автопересчёт формул
-        wb.calculation.calcMode = 'manual'
+        # Отключаем автопересчёт формул (ускоряет заполнение/сохранение)
+        try:
+            wb.calculation.calcMode = 'manual'
+        except Exception:
+            pass
 
         t_load = time_mod.perf_counter()
 
@@ -1230,7 +1233,7 @@ def _api_export_template_impl():
         BASE_LAST_COL = 25
         max_col = max(BASE_LAST_COL, required_last_col or 0)
 
-        # Находим формульные колонки
+        # Формульные колонки + исходные формулы из строки-шаблона
         formula_cols = set()
         pattern_formulas = {}
         for c in range(1, max_col + 1):
@@ -1238,34 +1241,18 @@ def _api_export_template_impl():
             if isinstance(v, str) and v.startswith('='):
                 formula_cols.add(c)
                 pattern_formulas[c] = v
+        formula_list = sorted(list(formula_cols))
 
-        # ОПТИМИЗАЦИЯ 3: Кэшируем стили один раз
-        style_cache = {}
-        for c in range(1, max_col + 1):
-            src = ws.cell(row=pattern_row, column=c)
-            style_cache[c] = {
-                "_style": copy(src._style),
-                'number_format': src.number_format,
-                'font': copy(src.font),
-                'border': copy(src.border),
-                'fill': copy(src.fill),
-                'alignment': copy(src.alignment),
-                'protection': copy(src.protection),
-            }
-
-        # ОПТИМИЗАЦИЯ 4: Создаём строки пакетом
-        needed_last_row = start_row + len(idxs) - 1
-
-        # Сначала создаём все нужные строки
-        for r in range(ws.max_row + 1, needed_last_row + 1):
-            # Создаём только первую ячейку, остальные создадутся при записи
-            ws.cell(row=r, column=1)
+        # Готовим Translator один раз на колонку (вместо пересоздания на каждую строку)
+        translators = {}
+        for c, src_formula in pattern_formulas.items():
+            src_addr = f"{get_column_letter(c)}{pattern_row}"
             try:
-                ws.row_dimensions[r].height = ws.row_dimensions[pattern_row].height
+                translators[c] = Translator(src_formula, origin=src_addr)
             except Exception:
-                pass
+                translators[c] = None
 
-        # ОПТИМИЗАЦИЯ 5: Подготавливаем данные заранее
+        # Какие колонки реально заполняем значениями
         writers = []
         for key, colnum in key_to_col.items():
             code = key_to_code.get(key) or ""
@@ -1275,99 +1262,144 @@ def _api_export_template_impl():
                 continue
             writers.append((code, colnum))
 
-        # Подготовка данных для записи
-        data_buffer = []
-        for j, idx in enumerate(idxs):
-            r = start_row + j
-            row_buffer = {}
-
-            row_buffer[2] = _dt.timedelta(seconds=j * 20)
-
-            if idx >= 0:
-                tms = rows[idx]["t_ms"]
-                dt_obj = dt.datetime.fromtimestamp(tms / 1000)
-                row_buffer[3] = dt_obj.time()
-
-                # Основные колонки
-                for code, colnum in writers:
-                    v = rows[idx].get(code)
-                    if v is not None:
-                        try:
-                            row_buffer[colnum] = float(v)
-                        except Exception:
-                            pass
-
-                # Дополнительные сенсоры
-                for code in extra_codes:
-                    colnum = extra_col_map.get(code)
-                    if not colnum:
-                        continue
-                    v = rows[idx].get(code)
-                    if v is not None:
-                        try:
-                            row_buffer[colnum] = float(v)
-                        except Exception:
-                            pass
-            else:
-                row_buffer[3] = None
-
-            data_buffer.append((r, row_buffer))
-
-        t_prep = time_mod.perf_counter()
-
-        # ОПТИМИЗАЦИЯ 6: Записываем данные одним проходом с кэшированием ячеек
-        formula_list = sorted(list(formula_cols))
-
-        for r, row_data in data_buffer:
-            # Кэшируем все ячейки строки сразу
-            row_cells = {}
-            for c in range(1, max_col + 1):
-                cell = ws.cell(row=r, column=c)
-                row_cells[c] = cell
-
-                # Применяем стиль из кэша
-                if c in style_cache:
-                    st = style_cache[c]
-                    cell._style = st["_style"]
-                    cell.number_format = st["number_format"]
-                    cell.font = st["font"]
-                    cell.border = st["border"]
-                    cell.fill = st["fill"]
-                    cell.alignment = st["alignment"]
-                    cell.protection = st["protection"]
-
-            # Записываем данные
-            for col, value in row_data.items():
-                row_cells[col].value = value
-
-            # Формулы
-            for c in formula_list:
-                src_formula = pattern_formulas.get(c)
-                if src_formula:
-                    src_addr = f"{get_column_letter(c)}{pattern_row}"
-                    dst_addr = f"{get_column_letter(c)}{r}"
-                    try:
-                        row_cells[c].value = Translator(src_formula, origin=src_addr).translate_formula(dst_addr)
-                    except Exception:
-                        row_cells[c].value = src_formula
-
-        # Заголовки для extra сенсоров
+        extra_writers = []
         if extra_codes:
-            header_row = start_row - 1
             for code in extra_codes:
                 colnum = extra_col_map.get(code)
                 if colnum:
-                    try:
-                        ws.cell(row=header_row, column=colnum).value = _template_header(code)
-                    except Exception:
-                        ws.cell(row=header_row, column=colnum).value = _display_name(code)
+                    extra_writers.append((code, colnum))
 
-        # Очистка строк ниже
-        clear_from = start_row + len(idxs)
-        clear_to = min(ws.max_row, clear_from + 100)  # Уменьшили с 300 до 100
-        for r in range(clear_from, clear_to + 1):
+        # Базовые колонки D..T (чтобы гарантированно очищать «невыбранные» значения)
+        base_raw_cols = sorted(set(key_to_col.values()))
+
+        needed_last_row = start_row + len(idxs) - 1
+
+        # Ключевая оптимизация:
+        # 1) Не трогаем стили/формат на строках, которые уже есть в template.xlsx.
+        # 2) Стили копируем ТОЛЬКО если нужно создать строки ниже максимума шаблона.
+        template_max_row = ws.max_row
+        if needed_last_row > template_max_row:
+            # Кэшируем только то, что реально влияет на формат (стиль + number_format)
+            style_cache = {}
             for c in range(1, max_col + 1):
-                if c not in formula_cols:
+                src = ws.cell(row=pattern_row, column=c)
+                try:
+                    style_cache[c] = (copy(src._style), src.number_format)
+                except Exception:
+                    style_cache[c] = (None, src.number_format)
+
+            pat_height = None
+            try:
+                pat_height = ws.row_dimensions[pattern_row].height
+            except Exception:
+                pat_height = None
+
+            for r in range(template_max_row + 1, needed_last_row + 1):
+                for c in range(1, max_col + 1):
+                    cell = ws.cell(row=r, column=c)
+                    st, nf = style_cache.get(c, (None, None))
+                    if st is not None:
+                        cell._style = st
+                    if nf is not None:
+                        cell.number_format = nf
+                if pat_height is not None:
+                    try:
+                        ws.row_dimensions[r].height = pat_height
+                    except Exception:
+                        pass
+
+        t_prep = time_mod.perf_counter()
+
+        # Заполняем значения (только нужные колонки), не создавая лишних «пустых» ячеек.
+        for j, idx in enumerate(idxs):
+            r = start_row + j
+
+            # B: смещение времени теста
+            ws.cell(row=r, column=2).value = _dt.timedelta(seconds=j * 20)
+
+            # C: время (time)
+            if idx >= 0:
+                tms = rows[idx]["t_ms"]
+                dt_obj = dt.datetime.fromtimestamp(tms / 1000)
+                ws.cell(row=r, column=3).value = dt_obj.time()
+            else:
+                ws.cell(row=r, column=3).value = None
+
+            # Сначала гарантированно очищаем базовые колонки D..T,
+            # чтобы в строках шаблона не осталось старых значений.
+            for colnum in base_raw_cols:
+                ws.cell(row=r, column=colnum).value = None
+
+            if idx >= 0:
+                row = rows[idx]
+
+                # Основные колонки (D..T)
+                for code, colnum in writers:
+                    v = row.get(code)
+                    if v is not None:
+                        try:
+                            ws.cell(row=r, column=colnum).value = float(v)
+                        except Exception:
+                            pass
+
+                # Доп. сенсоры (Z…)
+                for code, colnum in extra_writers:
+                    v = row.get(code)
+                    if v is None:
+                        ws.cell(row=r, column=colnum).value = None
+                    else:
+                        try:
+                            ws.cell(row=r, column=colnum).value = float(v)
+                        except Exception:
+                            ws.cell(row=r, column=colnum).value = None
+            else:
+                # Если данных нет — обязательно очистим extra колонки
+                for _, colnum in extra_writers:
+                    ws.cell(row=r, column=colnum).value = None
+
+            # Формулы: ставим только если в этой строке они отсутствуют
+            for c in formula_list:
+                cell = ws.cell(row=r, column=c)
+                vv = cell.value
+                if isinstance(vv, str) and vv.startswith('='):
+                    continue
+
+                src_formula = pattern_formulas.get(c)
+                if not src_formula:
+                    continue
+
+                tr = translators.get(c)
+                if tr is not None:
+                    dst_addr = f"{get_column_letter(c)}{r}"
+                    try:
+                        cell.value = tr.translate_formula(dst_addr)
+                    except Exception:
+                        cell.value = src_formula
+                else:
+                    cell.value = src_formula
+
+        # Заголовки для extra сенсоров
+        if extra_writers:
+            header_row = start_row - 1
+            for code, colnum in extra_writers:
+                try:
+                    ws.cell(row=header_row, column=colnum).value = _template_header(code)
+                except Exception:
+                    ws.cell(row=header_row, column=colnum).value = _display_name(code)
+
+        # Очистка строк ниже (быстро: не создаём новые ячейки)
+        clear_from = start_row + len(idxs)
+        clear_to = min(ws.max_row, clear_from + 200)
+        clear_cols = [2, 3] + base_raw_cols + [c for _, c in extra_writers]
+        cells_dict = getattr(ws, '_cells', None)
+
+        for r in range(clear_from, clear_to + 1):
+            for c in clear_cols:
+                if cells_dict is not None:
+                    cell = cells_dict.get((r, c))
+                    if cell is not None:
+                        cell.value = None
+                else:
                     ws.cell(row=r, column=c).value = None
 
         t_write = time_mod.perf_counter()
@@ -1515,7 +1547,7 @@ def _api_export_template_impl():
 
         try:
             resp.headers['X-Export-Total-S'] = f"{total_s:.3f}"
-            resp.headers['X-Export-Timing'] = f"load {load_s:.1f}s | build {build_s:.1f}s | save {save_s:.1f}s | total {total_s:.1f}s"
+            resp.headers['X-Export-Timing'] = f"load {load_s:.1f}s | prep {prep_s:.1f}s | write {write_s:.1f}s | format {format_s:.1f}s | save {save_s:.1f}s | total {total_s:.1f}s"
         except Exception:
             pass
 

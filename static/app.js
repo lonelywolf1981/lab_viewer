@@ -101,6 +101,7 @@ window.addEventListener("error", (e) => {
 // ===== UX/UI helpers (busy overlay, toasts, filters, auto-step) =====
 let BUSY_GUARD = 0;
 let _busyTimer = null;
+let _busyStopwatch = null;
 
 function _setOverlayVisible(vis, text) {
   const ov = el('busyOverlay');
@@ -111,19 +112,55 @@ function _setOverlayVisible(vis, text) {
   ov.setAttribute('aria-hidden', vis ? 'false' : 'true');
 }
 
-function beginBusy(text) {
+function beginBusy(text, opts) {
   BUSY_GUARD++;
   const my = BUSY_GUARD;
   let shown = false;
+
+  // Optional elapsed timer on overlay (useful for long exports)
+  const withTimer = !!(opts && opts.timer);
+  const tEl = el('busyTimer');
+  const t0 = (withTimer && window.performance && performance.now) ? performance.now() : 0;
+
+  // Stop any previous overlay timers
   if(_busyTimer) clearTimeout(_busyTimer);
+  if(_busyStopwatch) { try { clearInterval(_busyStopwatch); } catch(_) {} _busyStopwatch = null; }
+
+  function fmtElapsed(ms) {
+    try {
+      const total = Math.max(0, Math.floor(ms));
+      const sec = Math.floor(total / 1000);
+      const min = Math.floor(sec / 60);
+      const s2 = sec % 60;
+      const t = Math.floor((total % 1000) / 100);
+      return String(min).padStart(2,'0') + ':' + String(s2).padStart(2,'0') + '.' + String(t);
+    } catch(e) {
+      return '';
+    }
+  }
+
+  if(withTimer && tEl) {
+    tEl.textContent = '00:00.0';
+    _busyStopwatch = setInterval(() => {
+      if(my !== BUSY_GUARD) return;
+      const now = (window.performance && performance.now) ? performance.now() : Date.now();
+      tEl.textContent = fmtElapsed(now - t0);
+    }, 100);
+  } else {
+    if(tEl) tEl.textContent = '';
+  }
+
   _busyTimer = setTimeout(() => {
     if(my !== BUSY_GUARD) return;
     _setOverlayVisible(true, text || 'Работаю…');
     shown = true;
   }, 250);
+
   return () => {
     if(my !== BUSY_GUARD) return;
     if(_busyTimer) clearTimeout(_busyTimer);
+    if(_busyStopwatch) { try { clearInterval(_busyStopwatch); } catch(_) {} _busyStopwatch = null; }
+    if(tEl) tEl.textContent = '';
     if(shown) _setOverlayVisible(false, '');
   };
 }
@@ -1649,6 +1686,10 @@ function exportData(fmt) {
         } catch(e) {}
         throw new Error(msg);
       }
+      try {
+        _tplServerTotalS = r.headers.get('X-Export-Total-S');
+        _tplServerTiming = r.headers.get('X-Export-Timing');
+      } catch(e) {}
       return r.blob();
     })
     .then((blob) => {
@@ -1661,7 +1702,10 @@ function exportData(fmt) {
       a.remove();
       setTimeout(()=>URL.revokeObjectURL(url), 2000);
 
-      if(st) st.textContent = "Готово. Файл скачивается…";
+      if(st) {
+        const t = (_tplServerTiming ? (' (сервер: ' + _tplServerTiming + 's)') : '');
+        st.textContent = 'Готово. Файл скачивается…' + t;
+      }
       toast('Экспорт готов', `${fmt.toUpperCase()}: ${codes.length} каналов`, 'ok');
       log(`Export ${fmt.toUpperCase()} OK: channels=${codes.length}, range=${new Date(start_ms).toLocaleString()} → ${new Date(end_ms).toLocaleString()}, step=${step}`);
     })
@@ -1701,7 +1745,7 @@ function exportTemplate() {
   updateStepUI();
   const step = getStep();
 
-  const endBusy = beginBusy('Формирую XLSX по шаблону…');
+  const endBusy = beginBusy('Формирую XLSX по шаблону…', {timer:true});
 
   const btn = el("btnTpl");
   const st  = el("tplStatus");
@@ -1717,6 +1761,9 @@ function exportTemplate() {
   qs.set("step", String(step));
   qs.set('include_extra', String(includeExtra));
 
+  let _tplServerTotalS = null;
+  let _tplServerTiming = null;
+
   fetch("/api/export_template?" + qs.toString())
     .then(async (r) => {
       if(!r.ok) {
@@ -1730,6 +1777,10 @@ function exportTemplate() {
         } catch(e) {}
         throw new Error(msg);
       }
+      try {
+        _tplServerTotalS = r.headers.get('X-Export-Total-S');
+        _tplServerTiming = r.headers.get('X-Export-Timing');
+      } catch(e) {}
       return r.blob();
     })
     .then((blob) => {
@@ -1741,9 +1792,11 @@ function exportTemplate() {
       a.click();
       a.remove();
       setTimeout(()=>URL.revokeObjectURL(url), 2000);
-
-      if(st) st.textContent = "Готово. Файл скачивается…";
-      toast('Шаблон готов', `${codes.length} каналов`, 'ok');
+      if(st) {
+        const t = (_tplServerTotalS ? (' (сервер: ' + _tplServerTotalS + 'с)') : '');
+        st.textContent = 'Готово. Файл скачивается…' + t;
+      }
+      toast('Шаблон готов', _tplServerTotalS ? (`${codes.length} каналов (сервер: ${_tplServerTotalS}с)`) : (`${codes.length} каналов`), 'ok');
       log(`Export TEMPLATE OK: channels=${codes.length}, range=${new Date(start_ms).toLocaleString()} → ${new Date(end_ms).toLocaleString()}, step=${step}`);
     })
     .catch((e) => {

@@ -346,6 +346,8 @@ button { padding: 7px 12px; cursor:pointer; }
 .overlay.hidden{display:none;}
 .overlayBox{background:#fff;border-radius:12px;box-shadow:0 6px 22px rgba(0,0,0,.2);padding:18px 18px 14px 18px;min-width:260px;max-width:480px;display:flex;gap:12px;align-items:center;}
 .overlayText{font-size:13px;color:#333;line-height:1.35;}
+.overlayTextWrap{display:flex;flex-direction:column;gap:2px;}
+.overlayTimer{font-size:12px;color:#666;line-height:1.2;font-variant-numeric:tabular-nums;}
 .spinnerLarge{width:20px;height:20px;border:3px solid #bbb;border-top-color:#333;border-radius:50%;animation:spin .8s linear infinite;flex:0 0 20px;min-width:20px;box-sizing:border-box;}
 
 /* Toasts */
