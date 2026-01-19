@@ -5,6 +5,7 @@
   <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>ИЛХО Viewer</title>
+  <link rel="icon" type="image/png" href="/static/img.png"/>
   <link rel="stylesheet" href="/static/style.css?v={{asset_v}}"/>
   <!-- Plotly через CDN (если интернет закрыт — скажи, сделаю офлайн-версию с локальным plotly.js) -->
   <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
@@ -12,8 +13,7 @@
 <body>
   <div class="wrap">
     <header>
-      <h1>ИЛХО Viewer</h1>
-      <div class="sub">Локальный просмотрщик Prova*.dbf. Порт: {{port}}</div>
+      <h1><img src="/static/img.png" alt="" class="header-logo">ИЛХО Viewer</h1>
     </header>
 
     <section class="panel">
@@ -78,6 +78,15 @@
             <div class="controlsHints" id="controlsHints">
               <div class="controlsHintsTitle">Подсказки</div>
               <div class="controlsHintsBody" id="controlsHintsBody" data-default="Наведи мышь на любой элемент в этом блоке — здесь появится подсказка.">Наведи мышь на любой элемент в этом блоке — здесь появится подсказка.</div>
+            </div>
+
+            <div class="excel-tips">
+              <div class="excel-tips-title">Подсказка по Excel:</div>
+              <p>После выгрузки в шаблон необходимо включить автоматический расчет формул:</p>
+              <ol class="excel-tips-list">
+                <li class="excel-tips-item">Перейдите на вкладку "Формулы"</li>
+                <li class="excel-tips-item">Выберите "Параметры вычисления" → "Автоматически"</li>
+              </ol>
             </div>
 
           </div>
@@ -247,6 +256,7 @@
   </div>
   <div id="toastContainer" class="toastContainer" aria-live="polite" aria-atomic="true"></div>
 
+  <div class="copyright">© ТОО "Jasyl Suyq Qazaqstan"</div>
   <script src="/static/app.js?v={{asset_v}}"></script>
 </body>
 </html>

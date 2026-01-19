@@ -365,6 +365,50 @@ button { padding: 7px 12px; cursor:pointer; }
 .overlayTimer{font-size:12px;color:#666;line-height:1.2;font-variant-numeric:tabular-nums;}
 .spinnerLarge{width:20px;height:20px;border:3px solid #bbb;border-top-color:#333;border-radius:50%;animation:spin .8s linear infinite;flex:0 0 20px;min-width:20px;box-sizing:border-box;}
 
+/* Header logo */
+.header-logo{
+  height: 2.5em;
+  vertical-align: middle;
+  margin-right: 12px;
+}
+
+/* Excel tips */
+.excel-tips{
+  margin-top: 15px;
+  padding: 12px;
+  border: 1px solid #ffd43b;
+  border-radius: 8px;
+  background: #fff3cd;
+  font-size: clamp(10px, 1.6vw, 16px);
+  line-height: 1.4;
+}
+
+.excel-tips-title{
+  font-weight: bold;
+  margin-bottom: 8px;
+  color: #333;
+}
+
+.excel-tips-list{
+  margin: 0;
+  padding-left: 20px;
+}
+
+.excel-tips-item{
+  margin-bottom: 6px;
+}
+
+/* Copyright */
+.copyright{
+  position:fixed;
+  right:16px;
+  bottom:16px;
+  font-size:clamp(8px, 1.2vw, 12px);
+  color:#666;
+  z-index:10000;
+  text-align:right;
+}
+
 /* Toasts */
 .toastContainer{position:fixed;right:16px;top:16px;display:flex;flex-direction:column;gap:8px;z-index:10000;}
 .toast{background:#111;color:#fff;padding:10px 12px;border-radius:10px;max-width:420px;font-size:13px;box-shadow:0 4px 18px rgba(0,0,0,.25);opacity:.95;}
