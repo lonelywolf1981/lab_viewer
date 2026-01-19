@@ -72,6 +72,10 @@ let SAVED_ORDER = [];         // saved custom order (from channel_order.json) - 
 let SUMMARY = null;
 let currentRange = null;      // [start_ms, end_ms]
 
+// При загрузке НОВОГО теста нужно сбросить диапазон графика к полному диапазону теста.
+// При смене каналов внутри одного теста диапазон должен сохраняться.
+let _forceResetRangeOnNextPlot = false;
+
 let VIEWER_SETTINGS = null;  // server-side settings for template styling
 
 let redrawTimer = null;
@@ -1354,6 +1358,9 @@ function loadTest() {
         `Начало: <b>${SUMMARY.start}</b> | ` +
         `Конец: <b>${SUMMARY.end}</b>`;
       currentRange = [SUMMARY.start_ms, SUMMARY.end_ms];
+      // Новый тест загружен: на следующем построении графика диапазон должен
+      // сброситься к полному диапазону текущего теста.
+      _forceResetRangeOnNextPlot = true;
       updateRangeText();
     } else {
       el("summary").textContent = "Нет данных";
@@ -1419,11 +1426,16 @@ function drawPlot() {
   // Важно: НЕ переводим в ISO-строки (toISOString), иначе на некоторых ПК появляется смещение по времени/оси.
   // Держим диапазон как [ms, ms] и (если нужно) отдаём Plotly как Date-объекты.
   let desiredRange = null;
-  const vrBefore = getVisibleRangeFromPlot();
-  if(vrBefore && vrBefore.length === 2) {
-    desiredRange = [Math.min(vrBefore[0], vrBefore[1]), Math.max(vrBefore[0], vrBefore[1])];
-  } else if(currentRange && currentRange.length === 2) {
-    desiredRange = [Math.min(currentRange[0], currentRange[1]), Math.max(currentRange[0], currentRange[1])];
+  if(_forceResetRangeOnNextPlot) {
+    // Загружен новый тест: НЕ переносим zoom/диапазон со старого графика.
+    desiredRange = [SUMMARY.start_ms, SUMMARY.end_ms];
+  } else {
+    const vrBefore = getVisibleRangeFromPlot();
+    if(vrBefore && vrBefore.length === 2) {
+      desiredRange = [Math.min(vrBefore[0], vrBefore[1]), Math.max(vrBefore[0], vrBefore[1])];
+    } else if(currentRange && currentRange.length === 2) {
+      desiredRange = [Math.min(currentRange[0], currentRange[1]), Math.max(currentRange[0], currentRange[1])];
+    }
   }
 
   const start_ms = SUMMARY.start_ms;
@@ -1556,6 +1568,8 @@ function drawPlot() {
         } else if(!currentRange) {
           currentRange = [SUMMARY.start_ms, SUMMARY.end_ms];
         }
+        // Сброс диапазона применён (если был нужен) — дальше сохраняем диапазон при смене каналов.
+        _forceResetRangeOnNextPlot = false;
         updateRangeText();
       });
 
