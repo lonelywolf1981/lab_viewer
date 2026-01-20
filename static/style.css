@@ -40,7 +40,7 @@ button { padding: 7px 12px; cursor:pointer; }
   width:100%;
   padding:6px 8px;
   border-radius:8px;
-  border:1px solid #ddd;
+  border:1px solid #d0d0d0;
   background:#fff;
 }
 .main3{
@@ -212,6 +212,33 @@ button { padding: 7px 12px; cursor:pointer; }
   margin-left:0;
 }
 
+/* ===== Единый стиль color-picker в блоке оформления (как в строках ниже) ===== */
+.stylePanel input[type=color]{
+  -webkit-appearance:none;
+  appearance:none;
+  padding:0;
+  border:1px solid #d0d0d0;
+  border-radius:6px;
+  box-sizing:border-box;
+  background:transparent;
+  cursor:pointer;
+  position:relative;
+  z-index:3; /* всегда кликабельно */
+}
+.stylePanel input[type=color]::-webkit-color-swatch-wrapper{padding:0;}
+.stylePanel input[type=color]::-webkit-color-swatch{border:none;border-radius:6px;}
+
+/* размеры (пропорционально окружению) */
+.stylePanel .styleCondRow input[type=color]{
+  width:34px;
+  height:24px;
+}
+.scaleGroup input[type=color]{
+  width:30px;
+  height:22px;
+}
+
+
 /* Значение цвета (HEX/RGB) под каждым input[type=color] */
 .scaleGroup .clrCodeInput{
   grid-column: 2 / 4;
@@ -321,7 +348,7 @@ button { padding: 7px 12px; cursor:pointer; }
   font-size:clamp(10px, 1.5vw, 14px);
   box-sizing:border-box;
 }
-#rmColor{width:44px;height:28px;padding:0;border:1px solid #ddd;border-radius:6px;}
+
 #rmIntensity{width:100%;}
 
 .scaleGroup input[type=color]{
@@ -530,7 +557,6 @@ button { padding: 7px 12px; cursor:pointer; }
 .chanGroupTitle{ flex:1; }
 .chanGroupCount{ font-weight:normal; opacity:.8; font-size:12px; }
 .chanItem.groupHidden{ display:none; }
-
 
 
 /* Align label + unit badge */

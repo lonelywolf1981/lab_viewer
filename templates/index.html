@@ -138,7 +138,7 @@
             </div>
 
             <div class="row2 styleCondRow">
-              <label>t нагнетания &gt;</label>
+              <label>t° нагнетания &gt;</label>
               <input id="tdThreshold" type="number" step="0.1" style="width:90px"/>
               <label>цвет:</label>
               <div class="colorStack">
@@ -148,7 +148,7 @@
             </div>
 
             <div class="row2 styleCondRow">
-              <label>t всасывания &lt;</label>
+              <label>t° всасывания &lt;</label>
               <input id="tsThreshold" type="number" step="0.1" style="width:90px"/>
               <label>цвет:</label>
               <div class="colorStack">
@@ -160,7 +160,7 @@
             <div class="scaleGrid">
 
               <div class="scaleRow">
-                <div class="scaleName">min t в объёме</div>
+                <div class="scaleName">min t° в объёме</div>
                 <div class="scaleNorm">
                   <span class="sg">норма от</span>
                   <input id="wMin" type="number" step="0.1" title="Нижняя граница нормы"/>
@@ -175,7 +175,7 @@
               </div>
 
               <div class="scaleRow">
-                <div class="scaleName">max t в объёме</div>
+                <div class="scaleName">max t° в объёме</div>
                 <div class="scaleNorm">
                   <span class="sg">норма от</span>
                   <input id="xMin" type="number" step="0.1" title="Нижняя граница нормы"/>
@@ -190,7 +190,7 @@
               </div>
 
               <div class="scaleRow">
-                <div class="scaleName">сред t в объёме</div>
+                <div class="scaleName">сред t° в объёме</div>
                 <div class="scaleNorm">
                   <span class="sg">норма от</span>
                   <input id="yMin" type="number" step="0.1" title="Нижняя граница нормы"/>
@@ -209,9 +209,10 @@
             <div class="row2">
               <button id="btnSaveStyle" type="button">Применить</button>
               <span id="styleStatus" class="statusText"></span>
+              <span class="qmark" title="Эти настройки сохраняются в viewer_settings.json и применяются к следующей выгрузке «В шаблон XLSX». min/max/сред t° в объёме задаются независимо: укажи «нормальный диапазон» (min..opt). Ниже min — цвет «низк.», в диапазоне min..opt (включая границы) — цвет «норма», выше opt — цвет «высок.»">?</span>
             </div>
 
-            <span class="qmark" title="Эти настройки сохраняются в viewer_settings.json и применяются к следующей выгрузке «В шаблон XLSX». min/max/сред t в объёме задаются независимо: укажи «нормальный диапазон» (min..opt). Ниже min — цвет «низк.», в диапазоне min..opt (включая границы) — цвет «норма», выше opt — цвет «высок.»">?</span>
+
           </div>
 
           <div class="row2 stepRow">
