@@ -1216,6 +1216,15 @@ def _api_export_template_impl():
         wb = load_workbook(template_path, data_only=False, keep_vba=False)
         ws = wb.active
 
+        # Хладагент (ячейка B1)
+        refrigerant = (request.args.get('refrigerant') or 'R290').strip()
+        if refrigerant not in ('R290', 'R600a'):
+            refrigerant = 'R290'
+        try:
+            ws['B1'].value = refrigerant
+        except Exception:
+            pass
+
         # Отключаем автопересчёт формул (ускоряет заполнение/сохранение)
         try:
             wb.calculation.calcMode = 'manual'

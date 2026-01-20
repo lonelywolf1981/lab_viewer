@@ -19,10 +19,30 @@ button { padding: 7px 12px; cursor:pointer; }
 .hint { color:#666; font-size: clamp(8px, 1.2vw, 12px); margin-top: 8px; line-height: 1.35; }
 .row2 { display:flex; gap:8px; align-items:center; margin: 6px 0; flex-wrap:wrap; }
 
-/* ===== Layout: summary on top + 3 equal columns ===== */
-.summaryWide{ flex: 0 0 100%; min-width: 0; margin-bottom: 10px; display:flex; align-items:center; gap:12px; }
+/* ===== Layout: summary + refrigerant on top + 3 equal columns ===== */
+.summaryRow{ display:flex; gap:12px; align-items:stretch; flex-wrap:wrap; margin-bottom: 10px; }
+.summaryWide{ flex: 1 1 auto; min-width: 0; display:flex; align-items:center; gap:12px; }
 .summaryWide .boxTitle{ margin:0; white-space:nowrap; }
 #summary{white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+
+.refrigerantBox{
+  flex: 0 0 280px;
+  min-width: 240px;
+  max-width: 360px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.refrigerantLbl{ min-width: 90px; color:#333; font-weight:bold; white-space:nowrap; }
+.refrigerantSel{
+  flex:1;
+  min-width:0;
+  width:100%;
+  padding:6px 8px;
+  border-radius:8px;
+  border:1px solid #ddd;
+  background:#fff;
+}
 .main3{
   margin-top: 10px;
   display:grid;

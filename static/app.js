@@ -231,6 +231,7 @@ function updateSelectedCountUI() {
 const LS_LAST_STATE_KEY = 'lemure_last_state_v1';
 const LS_VIEW_OPTS_KEY = 'lemure_view_opts_v1';
 const LS_RECENT_FOLDERS_KEY = 'lemure_recent_folders_v1';
+const LS_REFRIGERANT_KEY = 'lemure_refrigerant_v1';
 
 let VIEW_COMPACT = false;
 let VIEW_GROUPS = false;
@@ -454,6 +455,40 @@ function clearRecentFolders() {
   saveRecentFolders();
   refreshRecentFoldersUI();
   toast('Недавние очищены', 'Список недавних папок очищен', 'ok');
+}
+
+// ---- Refrigerant (template cell B1) ----
+const ALLOWED_REFRIGERANTS = ['R290', 'R600a'];
+
+function getRefrigerant() {
+  try {
+    const sel = el('refrigerant');
+    let v = sel ? String(sel.value || '').trim() : '';
+    if(!ALLOWED_REFRIGERANTS.includes(v)) {
+      const saved = localStorage.getItem(LS_REFRIGERANT_KEY);
+      if(ALLOWED_REFRIGERANTS.includes(saved)) v = saved;
+    }
+    if(!ALLOWED_REFRIGERANTS.includes(v)) v = 'R290';
+    return v;
+  } catch(e) {
+    return 'R290';
+  }
+}
+
+function initRefrigerantUI() {
+  const sel = el('refrigerant');
+  if(!sel) return;
+  try {
+    const saved = localStorage.getItem(LS_REFRIGERANT_KEY);
+    if(ALLOWED_REFRIGERANTS.includes(saved)) sel.value = saved;
+  } catch(e) {}
+
+  // гарантируем значение по умолчанию
+  if(!ALLOWED_REFRIGERANTS.includes(String(sel.value || '').trim())) sel.value = 'R290';
+
+  sel.addEventListener('change', () => {
+    try { localStorage.setItem(LS_REFRIGERANT_KEY, getRefrigerant()); } catch(e) {}
+  });
 }
 
 async function copyTextToClipboard(txt) {
@@ -1882,8 +1917,9 @@ function exportTemplate() {
   const st  = el("tplStatus");
 
   const includeExtra = (el('tplExtra') && el('tplExtra').checked) ? 1 : 0;
+  const refrigerant = getRefrigerant();
   if(btn) { btn.disabled = true; btn.textContent = "Готовлю шаблон…"; }
-  if(st)  { st.innerHTML = `<span class="spinner"></span>Формирую Excel… <span style="opacity:.85">(каналы: ${codes.length}, диапазон: ${new Date(start_ms).toLocaleString()} → ${new Date(end_ms).toLocaleString()}, Z: ${includeExtra ? 'да' : 'нет'})</span>`; }
+  if(st)  { st.innerHTML = `<span class="spinner"></span>Формирую Excel… <span style="opacity:.85">(каналы: ${codes.length}, диапазон: ${new Date(start_ms).toLocaleString()} → ${new Date(end_ms).toLocaleString()}, Z: ${includeExtra ? 'да' : 'нет'}, хладагент: ${refrigerant})</span>`; }
 
   const qs = new URLSearchParams();
   qs.set("start_ms", String(start_ms));
@@ -1891,6 +1927,7 @@ function exportTemplate() {
   qs.set("channels", codes.join(","));
   qs.set("step", String(step));
   qs.set('include_extra', String(includeExtra));
+  qs.set('refrigerant', refrigerant);
 
   let _tplServerTotalS = null;
   let _tplServerTiming = null;
@@ -2282,6 +2319,7 @@ function wire() {
   loadRecentFolders();
   refreshRecentFoldersUI();
   applyViewClasses();
+  initRefrigerantUI();
 
   initChannelControlsHints();
 
