@@ -183,6 +183,35 @@ button { padding: 7px 12px; cursor:pointer; }
   background:#fff;
 }
 
+/* Ровные строки порог/цвет (мощность / t нагнетания / t всасывания) */
+.stylePanel .styleCondRow{
+  display:grid;
+  grid-template-columns: 160px 90px 48px minmax(0, 1fr);
+  align-items:center;
+  column-gap:8px;
+  row-gap:0;
+  margin: 6px 0;
+}
+.stylePanel .styleCondRow > label:first-child{
+  font-weight:bold;
+  white-space:nowrap;
+}
+.stylePanel .styleCondRow > label:nth-child(3){
+  white-space:nowrap;
+}
+.stylePanel .styleCondRow input[type=number]{
+  width:100%;
+}
+.stylePanel .styleCondRow .colorStack{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  min-width:0;
+}
+.stylePanel .styleCondRow .clrCodeInput{
+  margin-left:0;
+}
+
 /* Значение цвета (HEX/RGB) под каждым input[type=color] */
 .scaleGroup .clrCodeInput{
   grid-column: 2 / 4;
