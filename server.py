@@ -98,6 +98,8 @@ DEFAULT_VIEWER_SETTINGS: Dict[str, Any] = {
         'color': '#EAD706',  # мягкий жёлтый (как в примере)
         'intensity': 100,
     },
+    'discharge_mark': {'threshold': None, 'color': '#FFC000'},
+    'suction_mark': {'threshold': None, 'color': '#00B0F0'},
     'scales': {'W': {'min': -1, 'opt': 1, 'max': 2, 'colors': {'min': '#1CBCF2', 'opt': '#00FF00', 'max': '#F3919B'}},
                'X': {'min': -1, 'opt': 1, 'max': 2, 'colors': {'min': '#1CBCF2', 'opt': '#00FF00', 'max': '#F3919B'}},
                'Y': {'min': -1, 'opt': 1, 'max': 2, 'colors': {'min': '#1CBCF2', 'opt': '#00FF00', 'max': '#F3919B'}},
@@ -184,6 +186,32 @@ def load_viewer_settings() -> Dict[str, Any]:
     rm['color'] = _normalize_hex_color(str(rm.get('color') or ''), default='#FFF2CC')
     s['row_mark'] = rm
 
+    # Доп. условия окраски (H/I): t нагнетания / t всасывания
+    dm = s.get('discharge_mark') if isinstance(s.get('discharge_mark'), dict) else {}
+    thr = dm.get('threshold', None)
+    if thr is None or str(thr).strip() == '':
+        dm['threshold'] = None
+    else:
+        try:
+            dm['threshold'] = float(thr)
+        except Exception:
+            dm['threshold'] = None
+    dm['color'] = _normalize_hex_color(str(dm.get('color') or ''), default='#FFC000')
+    s['discharge_mark'] = dm
+
+    sm = s.get('suction_mark') if isinstance(s.get('suction_mark'), dict) else {}
+    thr = sm.get('threshold', None)
+    if thr is None or str(thr).strip() == '':
+        sm['threshold'] = None
+    else:
+        try:
+            sm['threshold'] = float(thr)
+        except Exception:
+            sm['threshold'] = None
+    sm['color'] = _normalize_hex_color(str(sm.get('color') or ''), default='#00B0F0')
+    s['suction_mark'] = sm
+
+
     scales = s.get('scales') if isinstance(s.get('scales'), dict) else {}
     out_scales = {}
     for k, defaults in DEFAULT_VIEWER_SETTINGS['scales'].items():
@@ -235,6 +263,32 @@ def normalize_viewer_settings(user_s: Dict[str, Any]) -> Dict[str, Any]:
         rm['intensity'] = 100
     rm['color'] = _normalize_hex_color(str(rm.get('color') or ''), default='#FFF2CC')
     s['row_mark'] = rm
+
+    # Доп. условия окраски (H/I): t нагнетания / t всасывания
+    dm = s.get('discharge_mark') if isinstance(s.get('discharge_mark'), dict) else {}
+    thr = dm.get('threshold', None)
+    if thr is None or str(thr).strip() == '':
+        dm['threshold'] = None
+    else:
+        try:
+            dm['threshold'] = float(thr)
+        except Exception:
+            dm['threshold'] = None
+    dm['color'] = _normalize_hex_color(str(dm.get('color') or ''), default='#FFC000')
+    s['discharge_mark'] = dm
+
+    sm = s.get('suction_mark') if isinstance(s.get('suction_mark'), dict) else {}
+    thr = sm.get('threshold', None)
+    if thr is None or str(thr).strip() == '':
+        sm['threshold'] = None
+    else:
+        try:
+            sm['threshold'] = float(thr)
+        except Exception:
+            sm['threshold'] = None
+    sm['color'] = _normalize_hex_color(str(sm.get('color') or ''), default='#00B0F0')
+    s['suction_mark'] = sm
+
 
     scales = s.get('scales') if isinstance(s.get('scales'), dict) else {}
     out_scales = {}
@@ -1454,6 +1508,45 @@ def _api_export_template_impl():
                 except Exception:
                     pass
                 ws.conditional_formatting.add(rng_row, rule_row)
+
+                def _fmt_thr(x) -> str:
+                    try:
+                        xf = float(x)
+                        if xf.is_integer():
+                            return str(int(xf))
+                        return (f"{xf:g}").replace(',', '.')
+                    except Exception:
+                        return None
+
+                # t нагнетания (колонка H): окрасить, если значение > порога
+                dm = VIEWER_SETTINGS.get('discharge_mark') if isinstance(VIEWER_SETTINGS.get('discharge_mark'), dict) else {}
+                td_thr_s = _fmt_thr(dm.get('threshold', None))
+                if td_thr_s is not None:
+                    hx = _normalize_hex_color(str(dm.get('color') or ''), default='#FFC000')
+                    argb = 'FF' + hx[1:].upper()
+                    f_td = PatternFill(fill_type='solid', start_color=argb, end_color=argb)
+                    rng_td = f"H{first_r}:H{last_r}"
+                    rule_td = FormulaRule(formula=[f'AND($H{first_r}<>"",$H{first_r}>{td_thr_s})'], fill=f_td, stopIfTrue=True)
+                    try:
+                        rule_td.priority = 5
+                    except Exception:
+                        pass
+                    ws.conditional_formatting.add(rng_td, rule_td)
+
+                # t всасывания (колонка I): окрасить, если значение < порога
+                sm = VIEWER_SETTINGS.get('suction_mark') if isinstance(VIEWER_SETTINGS.get('suction_mark'), dict) else {}
+                ts_thr_s = _fmt_thr(sm.get('threshold', None))
+                if ts_thr_s is not None:
+                    hx = _normalize_hex_color(str(sm.get('color') or ''), default='#00B0F0')
+                    argb = 'FF' + hx[1:].upper()
+                    f_ts = PatternFill(fill_type='solid', start_color=argb, end_color=argb)
+                    rng_ts = f"I{first_r}:I{last_r}"
+                    rule_ts = FormulaRule(formula=[f'AND($I{first_r}<>"",$I{first_r}<{ts_thr_s})'], fill=f_ts, stopIfTrue=True)
+                    try:
+                        rule_ts.priority = 6
+                    except Exception:
+                        pass
+                    ws.conditional_formatting.add(rng_ts, rule_ts)
 
                 scales = VIEWER_SETTINGS.get('scales') if isinstance(VIEWER_SETTINGS.get('scales'), dict) else {}
 

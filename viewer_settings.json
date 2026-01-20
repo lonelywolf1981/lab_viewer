@@ -4,6 +4,14 @@
     "color": "#DBEA06",
     "intensity": 100
   },
+  "discharge_mark": {
+    "threshold": 100.0,
+    "color": "#F52952"
+  },
+  "suction_mark": {
+    "threshold": 0.0,
+    "color": "#F52952"
+  },
   "scales": {
     "W": {
       "min": -1.0,

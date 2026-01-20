@@ -2154,6 +2154,43 @@ function initColorCodes(){
     bind(rm, ci);
   }
 
+  // 1b) t нагнетания (tdColor) — поле кода рядом с колорпикером
+  const td = el('tdColor');
+  if(td && td.getAttribute('data-hascode') !== '1'){
+    let ci = el('tdColorCode');
+    if(!ci){
+      ci = document.createElement('input');
+      ci.type = 'text';
+      ci.className = 'clrCodeInput';
+      ci.id = 'tdColorCode';
+      ci.autocomplete = 'off';
+      ci.spellcheck = false;
+      td.insertAdjacentElement('afterend', ci);
+    }
+    td.setAttribute('data-hascode', '1');
+    td.setAttribute('data-code-input', ci.id);
+    bind(td, ci);
+  }
+
+  // 1c) t всасывания (tsColor) — поле кода рядом с колорпикером
+  const ts = el('tsColor');
+  if(ts && ts.getAttribute('data-hascode') !== '1'){
+    let ci = el('tsColorCode');
+    if(!ci){
+      ci = document.createElement('input');
+      ci.type = 'text';
+      ci.className = 'clrCodeInput';
+      ci.id = 'tsColorCode';
+      ci.autocomplete = 'off';
+      ci.spellcheck = false;
+      ts.insertAdjacentElement('afterend', ci);
+    }
+    ts.setAttribute('data-hascode', '1');
+    ts.setAttribute('data-code-input', ci.id);
+    bind(ts, ci);
+  }
+
+
   // 2) Colors in W/X/Y scales — поле под цветом
   document.querySelectorAll('.scaleGrid input[type=color]').forEach(inp => {
     if(inp.getAttribute('data-hascode') === '1') return;
@@ -2178,11 +2215,25 @@ function _collectStyleSettingsFromUI() {
     // max не показываем в UI, но сервер ожидает opt < max
     return o + fallbackDelta;
   };
+  const _numOrNull = (v) => {
+    const t = String(v ?? '').trim();
+    if(t === '') return null;
+    const x = parseFloat(t);
+    return Number.isFinite(x) ? x : null;
+  };
   return {
     row_mark: {
       threshold_T: _num(el('rmThreshold')?.value, 150),
       color: (el('rmColor')?.value || '#EAD706'),
       intensity: Math.max(0, Math.min(100, parseInt(el('rmIntensity')?.value || '100', 10)))
+    },
+    discharge_mark: {
+      threshold: _numOrNull(el('tdThreshold')?.value),
+      color: (el('tdColor')?.value || '#FFC000')
+    },
+    suction_mark: {
+      threshold: _numOrNull(el('tsThreshold')?.value),
+      color: (el('tsColor')?.value || '#00B0F0')
     },
     scales: {
       W: {
@@ -2227,6 +2278,14 @@ function _applyStyleSettingsToUI(s) {
   _set('rmColor', rm.color || '#EAD706');
   _set('rmIntensity', rm.intensity ?? 100);
   _setText('rmIntensityVal', String(rm.intensity ?? 100));
+
+  const dm = s.discharge_mark || {};
+  _set('tdThreshold', dm.threshold);
+  _set('tdColor', dm.color || '#FFC000');
+
+  const sm = s.suction_mark || {};
+  _set('tsThreshold', sm.threshold);
+  _set('tsColor', sm.color || '#00B0F0');
 
   const sc = s.scales || {};
   const w = sc.W || {}; const x = sc.X || {}; const y = sc.Y || {};
