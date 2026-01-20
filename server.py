@@ -1224,6 +1224,13 @@ def _api_export_template_impl():
             ws['B1'].value = refrigerant
         except Exception:
             pass
+        # Путь папки теста (ячейка D1)
+        # Берём из поля 'Папка теста' (STATE['folder'])
+        try:
+            ws['D1'].value = (STATE.get('folder') or '').strip()
+        except Exception:
+            pass
+
 
         # Отключаем автопересчёт формул (ускоряет заполнение/сохранение)
         try:
