@@ -54,14 +54,23 @@ function parseRelayoutRange(ev) {
 
 // Plotly рисует ось времени в UTC. Чтобы на графике было локальное время (как в данных/сводке),
 // сдвигаем X на локальный offset. При чтении диапазона с графика делаем обратное преобразование.
+//function msToPlotX(ms) {
+//  const offMin = new Date(ms).getTimezoneOffset(); // minutes (UTC - local)
+//  return ms - offMin * 60000;
+//}
+//function plotXToMs(plotMs) {
+//  const offMin = new Date(plotMs).getTimezoneOffset();
+//  return plotMs + offMin * 60000;
+//}
+
 function msToPlotX(ms) {
-  const offMin = new Date(ms).getTimezoneOffset(); // minutes (UTC - local)
-  return ms - offMin * 60000;
+  return ms;
 }
+
 function plotXToMs(plotMs) {
-  const offMin = new Date(plotMs).getTimezoneOffset();
-  return plotMs + offMin * 60000;
+  return plotMs;
 }
+
 // LeMuRe Viewer UI (selection like <select multiple> + drag reorder + export by visible X range)
 let LOADED = false;
 
