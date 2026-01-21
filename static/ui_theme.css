@@ -1,0 +1,44 @@
+/* UI theme overrides for LeMuRe Viewer
+   ------------------------------------------------------------
+   Здесь меняются:
+   - шрифты (семейство/начертание/кегль)
+   - цвета и внешний вид компонентов (радиусы, тени, отступы)
+   Достаточно править значения переменных :root.
+*/
+
+:root{
+  /* Fonts */
+  --font-family-base: "Segoe UI", Arial, sans-serif;
+  --font-family-mono: Consolas, "Courier New", monospace;
+
+  --font-size-base: 13px;
+  --font-size-small: 12px;
+  --font-size-title: 20px;
+
+  --font-weight-base: 400;
+  --font-weight-strong: 700;
+
+  /* Page */
+  --page-bg: #f6f6f6;
+  --text-color: #111;
+  --muted-color: #555;
+
+  /* Surfaces */
+  --panel-bg: #ffffff;
+  --box-bg: #fafafa;
+  --border-color: #e5e5e5;
+
+  /* Shape / shadows */
+  --radius: 10px;
+  --shadow: 0 1px 3px rgba(0,0,0,.08);
+
+  /* Controls */
+  --btn-radius: 8px;
+  --btn-padding-y: 7px;
+  --btn-padding-x: 12px;
+
+  /* Layout */
+  --wrap-max: 1720px;
+  --wrap-min: 1080px;
+  --wrap-padding: 14px;
+}

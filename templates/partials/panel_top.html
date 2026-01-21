@@ -1,0 +1,24 @@
+<div class="row topRow">
+        <label>Папка теста:</label>
+        <input id="folder" type="text" placeholder="Например: C:\\Tests\\...\\Test-05" />
+        <button id="btnPick">Обзор…</button>
+        <button id="btnLoad">Загрузить</button>
+        <select id="recentFolders" class="recentSel" title="Недавние папки"></select>
+        <button id="btnCopyFolder" type="button" class="btnMini" title="Скопировать путь">Копировать</button>
+        <button id="btnClearRecent" type="button" class="btnMini" title="Очистить недавние">Очистить</button>
+      </div>
+
+      <div class="summaryRow">
+        <div class="box summaryWide">
+          <div class="boxTitle">Сводка</div>
+          <div id="summary">Не загружено</div>
+        </div>
+
+        <div class="box refrigerantBox" title="Хладагент для выгрузки в шаблон XLSX (ячейка B1)">
+          <label for="refrigerant" class="refrigerantLbl">Хладагент:</label>
+          <select id="refrigerant" class="refrigerantSel">
+            <option value="R290" selected>R290</option>
+            <option value="R600a">R600a</option>
+          </select>
+        </div>
+      </div>

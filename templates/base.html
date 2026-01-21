@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"/>
+  <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>ИЛХО Viewer</title>
+  <link rel="icon" type="image/png" href="/static/img.png"/>
+  <link rel="stylesheet" href="/static/ui_theme.css?v={{asset_v}}"/>
+  <link rel="stylesheet" href="/static/style.css?v={{asset_v}}"/>
+  <!-- Plotly через CDN (если интернет закрыт — скажи, сделаю офлайн-версию с локальным plotly.js) -->
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+  <script>window.ASSET_V="{{asset_v}}";</script>
+</head>
+<body>
+  {% block body %}{% endblock %}
+  <script src="/static/app.js?v={{asset_v}}"></script>
+</body>
+</html>

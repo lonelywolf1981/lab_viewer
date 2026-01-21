@@ -110,6 +110,10 @@ if exist "requirements.txt" (
   call :log requirements.txt not found, skipping.
 )
 
+call :log Installing openpyxl...
+"%VENV_PY%" -m pip install --disable-pip-version-check openpyxl >>"%LOG%" 2>&1
+if errorlevel 1 call :log WARN: openpyxl install had errors (continuing)
+
 call :log [4/5] Installing/Upgrading Flask & Werkzeug...
 "%VENV_PY%" -m pip install -U --disable-pip-version-check "%FLASK_SPEC%" "%WERKZEUG_SPEC%" >>"%LOG%" 2>&1
 if errorlevel 1 (
