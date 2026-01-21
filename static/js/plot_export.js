@@ -95,7 +95,19 @@ function drawPlot() {
             range: [new Date(msToPlotX(start_ms)), new Date(msToPlotX(end_ms))],
           },
         },
-        yaxis: {automargin: true},
+//        yaxis: {automargin: true},
+        yaxis: {
+          automargin: true,
+          showgrid: true,
+          dtick: 5,            // было авто (часто ~50), станет чаще
+          showticklabels: true, // подписи убрать
+          ticks: "",            // убрать риски
+          minor: {
+            dtick: 1,
+            showgrid: true,
+
+          }
+        },
         legend: getShowLegend() ? {
           orientation: "h",
           yanchor: "bottom",
