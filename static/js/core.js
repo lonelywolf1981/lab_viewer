@@ -1,4 +1,54 @@
 
+// ==== Compatibility layer (Windows 7 / older Chromium) ====
+// Some older browsers (common on Windows 7) lack Promise.prototype.finally.
+// The UI relies on .finally() to ALWAYS close the busy overlay; without it,
+// the request can succeed (toast shows) while the overlay never closes.
+// Polyfills below are safe for modern browsers.
+if (typeof Promise !== 'undefined' && !Promise.prototype.finally) {
+  // Based on the TC39 proposal semantics.
+  Promise.prototype.finally = function (onFinally) {
+    var P = this.constructor;
+    var handler = (typeof onFinally === 'function') ? onFinally : function () {};
+    return this.then(
+      function (value) {
+        return P.resolve(handler()).then(function () { return value; });
+      },
+      function (reason) {
+        return P.resolve(handler()).then(function () { throw reason; });
+      }
+    );
+  };
+}
+
+// Minimal URLSearchParams polyfill for legacy browsers.
+// We only use: new URLSearchParams(); set(); append(); toString().
+if (typeof window !== 'undefined' && typeof window.URLSearchParams === 'undefined') {
+  window.URLSearchParams = function () {
+    this._pairs = [];
+  };
+  window.URLSearchParams.prototype.set = function (k, v) {
+    k = String(k);
+    v = String(v);
+    for (var i = 0; i < this._pairs.length; i++) {
+      if (this._pairs[i][0] === k) {
+        this._pairs[i][1] = v;
+        return;
+      }
+    }
+    this._pairs.push([k, v]);
+  };
+  window.URLSearchParams.prototype.append = function (k, v) {
+    this._pairs.push([String(k), String(v)]);
+  };
+  window.URLSearchParams.prototype.toString = function () {
+    var out = [];
+    for (var i = 0; i < this._pairs.length; i++) {
+      out.push(encodeURIComponent(this._pairs[i][0]) + '=' + encodeURIComponent(this._pairs[i][1]));
+    }
+    return out.join('&');
+  };
+}
+
 function parsePlotlyDate(x) {
   if (typeof x === "number") return x;
   if (!x) return NaN;
@@ -105,6 +155,28 @@ const log = (msg) => {
 // Show JS errors in the log so you see them immediately
 window.addEventListener("error", (e) => {
   log("JS error: " + (e && e.message ? e.message : e));
+  // Hard fallback: never leave the UI stuck in "busy" due to a JS error.
+  try {
+    const ov = el('busyOverlay');
+    if (ov) {
+      ov.classList.add('hidden');
+      ov.setAttribute('aria-hidden', 'true');
+    }
+  } catch (_) {}
+});
+
+// Same for unhandled Promise rejections (common when a browser lacks some API)
+window.addEventListener('unhandledrejection', (e) => {
+  try {
+    log('JS unhandledrejection: ' + (e && e.reason && e.reason.message ? e.reason.message : (e && e.reason ? String(e.reason) : String(e))));
+  } catch (_) {}
+  try {
+    const ov = el('busyOverlay');
+    if (ov) {
+      ov.classList.add('hidden');
+      ov.setAttribute('aria-hidden', 'true');
+    }
+  } catch (_) {}
 });
 
 

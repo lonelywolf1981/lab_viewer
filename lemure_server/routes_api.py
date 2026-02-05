@@ -66,6 +66,19 @@ def api_load():
     body = request.get_json(force=True, silent=True) or {}
     folder = (body.get('folder') or '').strip()
 
+    # Windows 7 often enforces classic MAX_PATH (~260). If the test folder is deep
+    # and filenames are long, some filesystem operations may fail in surprising places.
+    # Detect early and return a clear message instead of "вечный спиннер" on the client.
+    if os.name == 'nt' and folder and len(folder) >= 240:
+        return jsonify({
+            'ok': False,
+            'error': (
+                'Слишком длинный путь для Windows 7 (ограничение около 260 символов). '
+                'Перемести папку с тестом ближе к корню (например D:\\Test\\...) '
+                'или сократи имена каталогов.'
+            )
+        })
+
     if not validate_folder_path(folder):
         return jsonify({'ok': False, 'error': 'Недопустимый путь'})
     if not folder:
