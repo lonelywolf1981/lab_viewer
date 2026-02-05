@@ -1,54 +1,4 @@
 
-// ==== Compatibility layer (Windows 7 / older Chromium) ====
-// Some older browsers (common on Windows 7) lack Promise.prototype.finally.
-// The UI relies on .finally() to ALWAYS close the busy overlay; without it,
-// the request can succeed (toast shows) while the overlay never closes.
-// Polyfills below are safe for modern browsers.
-if (typeof Promise !== 'undefined' && !Promise.prototype.finally) {
-  // Based on the TC39 proposal semantics.
-  Promise.prototype.finally = function (onFinally) {
-    var P = this.constructor;
-    var handler = (typeof onFinally === 'function') ? onFinally : function () {};
-    return this.then(
-      function (value) {
-        return P.resolve(handler()).then(function () { return value; });
-      },
-      function (reason) {
-        return P.resolve(handler()).then(function () { throw reason; });
-      }
-    );
-  };
-}
-
-// Minimal URLSearchParams polyfill for legacy browsers.
-// We only use: new URLSearchParams(); set(); append(); toString().
-if (typeof window !== 'undefined' && typeof window.URLSearchParams === 'undefined') {
-  window.URLSearchParams = function () {
-    this._pairs = [];
-  };
-  window.URLSearchParams.prototype.set = function (k, v) {
-    k = String(k);
-    v = String(v);
-    for (var i = 0; i < this._pairs.length; i++) {
-      if (this._pairs[i][0] === k) {
-        this._pairs[i][1] = v;
-        return;
-      }
-    }
-    this._pairs.push([k, v]);
-  };
-  window.URLSearchParams.prototype.append = function (k, v) {
-    this._pairs.push([String(k), String(v)]);
-  };
-  window.URLSearchParams.prototype.toString = function () {
-    var out = [];
-    for (var i = 0; i < this._pairs.length; i++) {
-      out.push(encodeURIComponent(this._pairs[i][0]) + '=' + encodeURIComponent(this._pairs[i][1]));
-    }
-    return out.join('&');
-  };
-}
-
 function parsePlotlyDate(x) {
   if (typeof x === "number") return x;
   if (!x) return NaN;
@@ -155,35 +105,38 @@ const log = (msg) => {
 // Show JS errors in the log so you see them immediately
 window.addEventListener("error", (e) => {
   log("JS error: " + (e && e.message ? e.message : e));
-  // Hard fallback: never leave the UI stuck in "busy" due to a JS error.
-  try {
-    const ov = el('busyOverlay');
-    if (ov) {
-      ov.classList.add('hidden');
-      ov.setAttribute('aria-hidden', 'true');
-    }
-  } catch (_) {}
+  // Never leave busy overlay stuck due to JS errors (common on Win7 with extensions/old APIs)
+  try { forceEndBusy(); } catch(_) {}
 });
 
-// Same for unhandled Promise rejections (common when a browser lacks some API)
-window.addEventListener('unhandledrejection', (e) => {
-  try {
-    log('JS unhandledrejection: ' + (e && e.reason && e.reason.message ? e.reason.message : (e && e.reason ? String(e.reason) : String(e))));
-  } catch (_) {}
-  try {
-    const ov = el('busyOverlay');
-    if (ov) {
-      ov.classList.add('hidden');
-      ov.setAttribute('aria-hidden', 'true');
-    }
-  } catch (_) {}
+window.addEventListener("unhandledrejection", (e) => {
+  try { log("Unhandled promise rejection: " + (e && e.reason ? (e.reason.message || e.reason) : e)); } catch(_) {}
+  try { forceEndBusy(); } catch(_) {}
 });
 
 
 // ===== UX/UI helpers (busy overlay, toasts, filters, auto-step) =====
-let BUSY_GUARD = 0;
-let _busyTimer = null;
+// Busy overlay must not get stuck on Windows 7 browsers.
+// Previous token-based guard could leave overlay visible when beginBusy() calls are nested
+// (e.g. loadTest() -> drawPlot()), because the earlier endBusy() became a no-op.
+// Implement reference counting + watchdog auto-hide.
+let BUSY_DEPTH = 0;
+let _busyShowTimer = null;
 let _busyStopwatch = null;
+let _busyWatchdog = null;
+let _busyShown = false;
+let _busyText = '';
+let _busyTimerEnabled = false;
+let _busyT0 = 0;
+
+function forceEndBusy() {
+  BUSY_DEPTH = 0;
+  if(_busyShowTimer) { try { clearTimeout(_busyShowTimer); } catch(_) {} _busyShowTimer = null; }
+  if(_busyStopwatch) { try { clearInterval(_busyStopwatch); } catch(_) {} _busyStopwatch = null; }
+  if(_busyWatchdog) { try { clearTimeout(_busyWatchdog); } catch(_) {} _busyWatchdog = null; }
+  try { _setOverlayVisible(false, ''); } catch(_) {}
+  _busyShown = false;
+}
 
 function _setOverlayVisible(vis, text) {
   const ov = el('busyOverlay');
@@ -195,18 +148,21 @@ function _setOverlayVisible(vis, text) {
 }
 
 function beginBusy(text, opts) {
-  BUSY_GUARD++;
-  const my = BUSY_GUARD;
-  let shown = false;
+  BUSY_DEPTH = Math.max(0, BUSY_DEPTH) + 1;
+  const myDepth = BUSY_DEPTH;
+  _busyText = text || 'Работаю…';
 
   // Optional elapsed timer on overlay (useful for long exports)
   const withTimer = !!(opts && opts.timer);
   const tEl = el('busyTimer');
-  const t0 = (withTimer && window.performance && performance.now) ? performance.now() : 0;
+  _busyTimerEnabled = withTimer;
+  _busyT0 = (withTimer && window.performance && performance.now) ? performance.now() : Date.now();
 
-  // Stop any previous overlay timers
-  if(_busyTimer) clearTimeout(_busyTimer);
+  // Stop any previous overlay timers and watchdog
+  if(_busyShowTimer) { try { clearTimeout(_busyShowTimer); } catch(_) {} _busyShowTimer = null; }
   if(_busyStopwatch) { try { clearInterval(_busyStopwatch); } catch(_) {} _busyStopwatch = null; }
+  if(_busyWatchdog) { try { clearTimeout(_busyWatchdog); } catch(_) {} _busyWatchdog = null; }
+  _busyShown = false;
 
   function fmtElapsed(ms) {
     try {
@@ -224,26 +180,51 @@ function beginBusy(text, opts) {
   if(withTimer && tEl) {
     tEl.textContent = '00:00.0';
     _busyStopwatch = setInterval(() => {
-      if(my !== BUSY_GUARD) return;
+      // Only update timer while we're still busy at or above this depth.
+      if(BUSY_DEPTH < myDepth) return;
       const now = (window.performance && performance.now) ? performance.now() : Date.now();
-      tEl.textContent = fmtElapsed(now - t0);
+      tEl.textContent = fmtElapsed(now - _busyT0);
     }, 100);
   } else {
     if(tEl) tEl.textContent = '';
   }
 
-  _busyTimer = setTimeout(() => {
-    if(my !== BUSY_GUARD) return;
-    _setOverlayVisible(true, text || 'Работаю…');
-    shown = true;
+  // Show after a short delay (avoid flicker), but always keep last text.
+  _busyShowTimer = setTimeout(() => {
+    if(BUSY_DEPTH <= 0) return;
+    _setOverlayVisible(true, _busyText);
+    _busyShown = true;
   }, 250);
 
+  // Watchdog: never let overlay stay forever (network hang / JS error / old browser quirks).
+  const maxMs = (opts && typeof opts.maxMs === 'number' && isFinite(opts.maxMs) && opts.maxMs > 1000)
+    ? Math.floor(opts.maxMs)
+    : 120000; // 2 minutes
+  _busyWatchdog = setTimeout(() => {
+    if(BUSY_DEPTH <= 0) return;
+    // Force clear
+    BUSY_DEPTH = 0;
+    try { _setOverlayVisible(false, ''); } catch(_) {}
+    try { toast('Загрузка прервана', 'Операция выполнялась слишком долго. Проверь путь/сеть/логи.', 'warn', 8000); } catch(_) {}
+    try { log('busy watchdog fired'); } catch(_) {}
+  }, maxMs);
+
   return () => {
-    if(my !== BUSY_GUARD) return;
-    if(_busyTimer) clearTimeout(_busyTimer);
+    // Decrement depth and hide when last ends.
+    BUSY_DEPTH = Math.max(0, BUSY_DEPTH - 1);
+
+    if(BUSY_DEPTH > 0) {
+      // Still busy due to nested operation; keep overlay visible with latest text.
+      try { _setOverlayVisible(true, _busyText); } catch(_) {}
+      return;
+    }
+
+    if(_busyShowTimer) { try { clearTimeout(_busyShowTimer); } catch(_) {} _busyShowTimer = null; }
     if(_busyStopwatch) { try { clearInterval(_busyStopwatch); } catch(_) {} _busyStopwatch = null; }
+    if(_busyWatchdog) { try { clearTimeout(_busyWatchdog); } catch(_) {} _busyWatchdog = null; }
     if(tEl) tEl.textContent = '';
-    if(shown) _setOverlayVisible(false, '');
+    try { _setOverlayVisible(false, ''); } catch(_) {}
+    _busyShown = false;
   };
 }
 

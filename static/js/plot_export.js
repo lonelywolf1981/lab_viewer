@@ -30,21 +30,22 @@ function drawPlot() {
   const start_ms = SUMMARY.start_ms;
   const end_ms = SUMMARY.end_ms;
 
-  const qs = new URLSearchParams();
-  qs.set('channels', codes.join(','));
-  qs.set('start_ms', String(start_ms));
-  qs.set('end_ms', String(end_ms));
-
-  // Если включён "Авто шаг" — просим сервер ограничить количество точек.
-  // Это защищает Plotly от зависаний на больших тестах.
+  // IMPORTANT (Win7): use POST JSON instead of long query string.
+  // Old browsers / proxies can have strict URL length limits.
+  const payload = {
+    channels: codes,
+    start_ms: start_ms,
+    end_ms: end_ms,
+  };
   const isAuto = !!(el('stepAuto') && el('stepAuto').checked);
-  if(isAuto) {
-    qs.set('max_points', String(getStepTarget()));
-  } else {
-    qs.set('step', String(step));
-  }
+  if(isAuto) payload.max_points = getStepTarget();
+  else payload.step = step;
 
-  fetch(`/api/series?${qs.toString()}`)
+  fetch('/api/series', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  })
     .then(r=>r.json())
     .then(j=>{
       if(!j.ok) {

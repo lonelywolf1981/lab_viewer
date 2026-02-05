@@ -66,19 +66,6 @@ def api_load():
     body = request.get_json(force=True, silent=True) or {}
     folder = (body.get('folder') or '').strip()
 
-    # Windows 7 often enforces classic MAX_PATH (~260). If the test folder is deep
-    # and filenames are long, some filesystem operations may fail in surprising places.
-    # Detect early and return a clear message instead of "вечный спиннер" on the client.
-    if os.name == 'nt' and folder and len(folder) >= 240:
-        return jsonify({
-            'ok': False,
-            'error': (
-                'Слишком длинный путь для Windows 7 (ограничение около 260 символов). '
-                'Перемести папку с тестом ближе к корню (например D:\\Test\\...) '
-                'или сократи имена каталогов.'
-            )
-        })
-
     if not validate_folder_path(folder):
         return jsonify({'ok': False, 'error': 'Недопустимый путь'})
     if not folder:
@@ -115,7 +102,7 @@ def api_load():
         return jsonify({'ok': False, 'error': str(e)})
 
 
-@api_bp.route('/api/series', methods=['GET'])
+@api_bp.route('/api/series', methods=['GET', 'POST'])
 def api_series():
     if not STATE.get('loaded'):
         return jsonify({'ok': False, 'error': 'Данные не загружены'})
@@ -124,14 +111,25 @@ def api_series():
     rows: List[Dict[str, Any]] = data['rows']
     t_list: List[int] = STATE['t_list']
 
-    channels = request.args.get('channels', '')
-    ch = [c for c in channels.split(',') if c.strip()]
+    if request.method == 'POST':
+        body = request.get_json(force=True, silent=True) or {}
+        channels_in = body.get('channels')
+        if isinstance(channels_in, list):
+            ch = [str(c).strip() for c in channels_in if str(c).strip()]
+        else:
+            channels = str(channels_in or '')
+            ch = [c for c in channels.split(',') if c.strip()]
+        args = body
+    else:
+        channels = request.args.get('channels', '')
+        ch = [c for c in channels.split(',') if c.strip()]
+        args = request.args
     if not ch:
         return jsonify({'ok': False, 'error': 'Не выбраны каналы'})
 
     try:
-        start_ms = int(float(request.args.get('start_ms', rows[0]['t_ms'])))
-        end_ms = int(float(request.args.get('end_ms', rows[-1]['t_ms'])))
+        start_ms = int(float(args.get('start_ms', rows[0]['t_ms'])))
+        end_ms = int(float(args.get('end_ms', rows[-1]['t_ms'])))
     except Exception:
         start_ms = rows[0]['t_ms']
         end_ms = rows[-1]['t_ms']
@@ -140,11 +138,11 @@ def api_series():
         start_ms, end_ms = end_ms, start_ms
 
     try:
-        step_i = max(1, int(request.args.get('step', '1')))
+        step_i = max(1, int(args.get('step', '1')))
     except Exception:
         step_i = 1
 
-    max_points = request.args.get('max_points', '')
+    max_points = args.get('max_points', '')
     try:
         target = int(float(max_points)) if str(max_points).strip() != '' else 0
     except Exception:
