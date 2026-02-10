@@ -140,34 +140,6 @@ def _parse_dbf_value(raw: bytes, f: DbfField):
     return s if s != "" else None
 
 
-# def read_dbf_rows(dbf_path: str) -> Tuple[DbfHeader, List[Dict[str, Any]]]:
-#     with open(dbf_path, "rb") as f:
-#         buf = f.read()
-#
-#     hdr = _read_dbf_header(buf)
-#     fields = hdr.fields
-#
-#     start = hdr.header_len
-#     rec_len = hdr.record_len
-#
-#     rows: List[Dict[str, Any]] = []
-#     pos = start
-#     for _ in range(hdr.records):
-#         rec = buf[pos:pos + rec_len]
-#         pos += rec_len
-#         if not rec or len(rec) < rec_len:
-#             break
-#         if rec[0:1] == b"*":
-#             continue
-#         off = 1
-#         row: Dict[str, Any] = {}
-#         for fdef in fields:
-#             raw = rec[off:off + fdef.length]
-#             off += fdef.length
-#             row[fdef.name] = _parse_dbf_value(raw, fdef)
-#         rows.append(row)
-#
-#     return hdr, rows
 def iter_dbf_rows(dbf_path: str) -> Iterable[Dict[str, Any]]:
     """Memory-efficient streaming DBF iterator.
 
@@ -277,8 +249,9 @@ def load_test(folder: str):
         raise FileNotFoundError("В папке теста нет Prova*.dbf")
     dbfs.sort(key=_dbf_sort_key)
 
-    data_rows: List[Dict[str, Any]] = []
-    cols_set = set()
+    # First pass: collect rows (needed for time-based sorting)
+    raw_rows: List[Dict[str, Any]] = []
+    cols_set: set = set()
 
     for dbf in dbfs:
         for r in iter_dbf_rows(dbf):
@@ -319,17 +292,26 @@ def load_test(folder: str):
                     except Exception:
                         row2[k] = str(v)
 
-            data_rows.append(row2)
+            raw_rows.append(row2)
             cols_set.update(row2.keys())
 
-    data_rows.sort(key=lambda x: x["t_ms"])
+    raw_rows.sort(key=lambda x: x["t_ms"])
     cols_set.discard("t_ms")
     cols = sorted(cols_set)
+
+    # Convert to columnar storage for better cache locality and faster slicing
+    nrows = len(raw_rows)
+    t_ms = [r["t_ms"] for r in raw_rows]
+    columns: Dict[str, list] = {}
+    for col in cols:
+        columns[col] = [r.get(col) for r in raw_rows]
 
     return {
         "root": root,
         "meta": meta,
         "channels": channels,  # dict[str, ChannelInfo]
-        "rows": data_rows,     # list[dict], t_ms + values
+        "t_ms": t_ms,          # list[int], sorted timestamps
+        "columns": columns,    # dict[str, list], columnar data
         "cols": cols,
+        "nrows": nrows,
     }

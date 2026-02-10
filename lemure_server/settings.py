@@ -3,14 +3,17 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 from typing import Any, Dict
 
 from .config import SETTINGS_FILE
 
+SETTINGS_LOCK = threading.Lock()
+
 DEFAULT_VIEWER_SETTINGS: Dict[str, Any] = {
     'row_mark': {
         'threshold_T': 150,
-        'color': '#EAD706',  # мягкий жёлтый
+        'color': '#EAD706',
         'intensity': 100,
     },
     'discharge_mark': {'threshold': None, 'color': '#FFC000'},
@@ -32,7 +35,7 @@ def _deep_merge(dst: Dict[str, Any], src: Dict[str, Any]) -> Dict[str, Any]:
     return dst
 
 
-def _normalize_hex_color(s: str, default: str = '#FFF2CC') -> str:
+def normalize_hex_color(s: str, default: str = '#FFF2CC') -> str:
     s = (s or '').strip()
     if not s:
         return default
@@ -43,11 +46,11 @@ def _normalize_hex_color(s: str, default: str = '#FFF2CC') -> str:
     return default
 
 
-def _argb_from_hex_and_intensity(hex_color: str, intensity_0_100: int) -> str:
+def argb_from_hex_and_intensity(hex_color: str, intensity_0_100: int) -> str:
     """Convert CSS #RRGGBB + intensity to Excel ARGB (FFRRGGBB), blending with white.
     intensity=100 -> original color; intensity=0 -> white.
     """
-    hex_color = _normalize_hex_color(hex_color)
+    hex_color = normalize_hex_color(hex_color)
     i = max(0, min(100, int(intensity_0_100)))
     w = 1.0 - i / 100.0
     r = int(hex_color[1:3], 16)
@@ -59,8 +62,78 @@ def _argb_from_hex_and_intensity(hex_color: str, intensity_0_100: int) -> str:
     return f'FF{r2:02X}{g2:02X}{b2:02X}'
 
 
+def _normalize_settings_dict(s: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize and validate a settings dictionary in-place, returning it."""
+    # row_mark
+    rm = s.get('row_mark') if isinstance(s.get('row_mark'), dict) else {}
+    try:
+        rm['threshold_T'] = float(rm.get('threshold_T', 150))
+    except Exception:
+        rm['threshold_T'] = 150.0
+    try:
+        rm['intensity'] = max(0, min(100, int(rm.get('intensity', 100))))
+    except Exception:
+        rm['intensity'] = 100
+    rm['color'] = normalize_hex_color(str(rm.get('color') or ''), default='#FFF2CC')
+    s['row_mark'] = rm
+
+    # discharge_mark
+    dm = s.get('discharge_mark') if isinstance(s.get('discharge_mark'), dict) else {}
+    thr = dm.get('threshold', None)
+    if thr is None or str(thr).strip() == '':
+        dm['threshold'] = None
+    else:
+        try:
+            dm['threshold'] = float(thr)
+        except Exception:
+            dm['threshold'] = None
+    dm['color'] = normalize_hex_color(str(dm.get('color') or ''), default='#FFC000')
+    s['discharge_mark'] = dm
+
+    # suction_mark
+    sm = s.get('suction_mark') if isinstance(s.get('suction_mark'), dict) else {}
+    thr = sm.get('threshold', None)
+    if thr is None or str(thr).strip() == '':
+        sm['threshold'] = None
+    else:
+        try:
+            sm['threshold'] = float(thr)
+        except Exception:
+            sm['threshold'] = None
+    sm['color'] = normalize_hex_color(str(sm.get('color') or ''), default='#00B0F0')
+    s['suction_mark'] = sm
+
+    # scales
+    scales = s.get('scales') if isinstance(s.get('scales'), dict) else {}
+    out_scales = {}
+    for k, defaults in DEFAULT_VIEWER_SETTINGS['scales'].items():
+        d = scales.get(k, {}) if isinstance(scales.get(k), dict) else {}
+        merged = dict(defaults)
+        merged.update(d)
+        for kk in ('min', 'opt', 'max'):
+            try:
+                merged[kk] = float(merged.get(kk))
+            except Exception:
+                merged[kk] = float(defaults[kk])
+        if merged['min'] >= merged['opt']:
+            merged['min'] = merged['opt'] - 1
+        if merged['opt'] >= merged['max']:
+            merged['max'] = merged['opt'] + 1
+
+        colors = merged.get('colors') if isinstance(merged.get('colors'), dict) else {}
+        dcolors = defaults.get('colors') if isinstance(defaults.get('colors'), dict) else {}
+        merged['colors'] = {
+            'min': normalize_hex_color(str(colors.get('min') or ''), default=dcolors.get('min', '#0000FF')),
+            'opt': normalize_hex_color(str(colors.get('opt') or ''), default=dcolors.get('opt', '#00FF00')),
+            'max': normalize_hex_color(str(colors.get('max') or ''), default=dcolors.get('max', '#FF0000')),
+        }
+        out_scales[k] = merged
+
+    s['scales'] = out_scales
+    return s
+
+
 def load_viewer_settings() -> Dict[str, Any]:
-    # Start with defaults
     s = json.loads(json.dumps(DEFAULT_VIEWER_SETTINGS))
 
     user_s: Dict[str, Any] = {}
@@ -87,77 +160,7 @@ def load_viewer_settings() -> Dict[str, Any]:
                 pass
 
     _deep_merge(s, user_s)
-
-    # Normalize
-    rm = s.get('row_mark') if isinstance(s.get('row_mark'), dict) else {}
-    try:
-        rm['threshold_T'] = float(rm.get('threshold_T', 150))
-    except Exception:
-        rm['threshold_T'] = 150.0
-    try:
-        rm['intensity'] = max(0, min(100, int(rm.get('intensity', 100))))
-    except Exception:
-        rm['intensity'] = 100
-    rm['color'] = _normalize_hex_color(str(rm.get('color') or ''), default='#FFF2CC')
-    s['row_mark'] = rm
-
-    # discharge_mark
-    dm = s.get('discharge_mark') if isinstance(s.get('discharge_mark'), dict) else {}
-    thr = dm.get('threshold', None)
-    if thr is None or str(thr).strip() == '':
-        dm['threshold'] = None
-    else:
-        try:
-            dm['threshold'] = float(thr)
-        except Exception:
-            dm['threshold'] = None
-    dm['color'] = _normalize_hex_color(str(dm.get('color') or ''), default='#FFC000')
-    s['discharge_mark'] = dm
-
-    # suction_mark
-    sm = s.get('suction_mark') if isinstance(s.get('suction_mark'), dict) else {}
-    thr = sm.get('threshold', None)
-    if thr is None or str(thr).strip() == '':
-        sm['threshold'] = None
-    else:
-        try:
-            sm['threshold'] = float(thr)
-        except Exception:
-            sm['threshold'] = None
-    sm['color'] = _normalize_hex_color(str(sm.get('color') or ''), default='#00B0F0')
-    s['suction_mark'] = sm
-
-    # scales
-    scales = s.get('scales') if isinstance(s.get('scales'), dict) else {}
-    out_scales = {}
-    for k, defaults in DEFAULT_VIEWER_SETTINGS['scales'].items():
-        d = scales.get(k, {}) if isinstance(scales.get(k), dict) else {}
-        merged = dict(defaults)
-        merged.update(d)
-        for kk in ('min', 'opt', 'max'):
-            try:
-                merged[kk] = float(merged.get(kk))
-            except Exception:
-                merged[kk] = float(defaults[kk])
-        if merged['min'] >= merged['opt']:
-            merged['min'] = merged['opt'] - 1
-        if merged['opt'] >= merged['max']:
-            merged['max'] = merged['opt'] + 1
-
-        colors = merged.get('colors') if isinstance(merged.get('colors'), dict) else {}
-
-        def _col(key, default):
-            return _normalize_hex_color(str(colors.get(key) or ''), default=default)
-
-        merged['colors'] = {
-            'min': _col('min', '#0000FF'),
-            'opt': _col('opt', '#00FF00'),
-            'max': _col('max', '#FF0000'),
-        }
-        out_scales[k] = merged
-
-    s['scales'] = out_scales
-    return s
+    return _normalize_settings_dict(s)
 
 
 def normalize_viewer_settings(user_s: Dict[str, Any]) -> Dict[str, Any]:
@@ -165,83 +168,7 @@ def normalize_viewer_settings(user_s: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(user_s, dict):
         user_s = {}
     _deep_merge(s, user_s)
-
-    # reuse same normalization as load
-    tmp = s
-    s2 = load_viewer_settings()  # start from defaults+file to keep same structure
-    # but overwrite with tmp
-    s2 = json.loads(json.dumps(DEFAULT_VIEWER_SETTINGS))
-    _deep_merge(s2, tmp)
-
-    # normalize by saving through load-like rules
-    # (cheap way: call load_viewer_settings logic on s2 by manual normalization)
-    # row_mark
-    rm = s2.get('row_mark') if isinstance(s2.get('row_mark'), dict) else {}
-    try:
-        rm['threshold_T'] = float(rm.get('threshold_T', 150))
-    except Exception:
-        rm['threshold_T'] = 150.0
-    try:
-        rm['intensity'] = max(0, min(100, int(rm.get('intensity', 100))))
-    except Exception:
-        rm['intensity'] = 100
-    rm['color'] = _normalize_hex_color(str(rm.get('color') or ''), default='#FFF2CC')
-    s2['row_mark'] = rm
-
-    dm = s2.get('discharge_mark') if isinstance(s2.get('discharge_mark'), dict) else {}
-    thr = dm.get('threshold', None)
-    if thr is None or str(thr).strip() == '':
-        dm['threshold'] = None
-    else:
-        try:
-            dm['threshold'] = float(thr)
-        except Exception:
-            dm['threshold'] = None
-    dm['color'] = _normalize_hex_color(str(dm.get('color') or ''), default='#FFC000')
-    s2['discharge_mark'] = dm
-
-    sm = s2.get('suction_mark') if isinstance(s2.get('suction_mark'), dict) else {}
-    thr = sm.get('threshold', None)
-    if thr is None or str(thr).strip() == '':
-        sm['threshold'] = None
-    else:
-        try:
-            sm['threshold'] = float(thr)
-        except Exception:
-            sm['threshold'] = None
-    sm['color'] = _normalize_hex_color(str(sm.get('color') or ''), default='#00B0F0')
-    s2['suction_mark'] = sm
-
-    scales = s2.get('scales') if isinstance(s2.get('scales'), dict) else {}
-    out_scales = {}
-    for k, defaults in DEFAULT_VIEWER_SETTINGS['scales'].items():
-        d = scales.get(k, {}) if isinstance(scales.get(k), dict) else {}
-        merged = dict(defaults)
-        merged.update(d)
-        for kk in ('min', 'opt', 'max'):
-            try:
-                merged[kk] = float(merged.get(kk))
-            except Exception:
-                merged[kk] = float(defaults[kk])
-        if merged['min'] >= merged['opt']:
-            merged['min'] = merged['opt'] - 1
-        if merged['opt'] >= merged['max']:
-            merged['max'] = merged['opt'] + 1
-
-        colors = merged.get('colors') if isinstance(merged.get('colors'), dict) else {}
-
-        def _col(key, default):
-            return _normalize_hex_color(str(colors.get(key) or ''), default=default)
-
-        merged['colors'] = {
-            'min': _col('min', '#0000FF'),
-            'opt': _col('opt', '#00FF00'),
-            'max': _col('max', '#FF0000'),
-        }
-        out_scales[k] = merged
-    s2['scales'] = out_scales
-
-    return s2
+    return _normalize_settings_dict(s)
 
 
 def save_viewer_settings(settings: Dict[str, Any]) -> None:
@@ -256,10 +183,12 @@ VIEWER_SETTINGS: Dict[str, Any] = load_viewer_settings()
 
 
 def get_viewer_settings() -> Dict[str, Any]:
-    return VIEWER_SETTINGS
+    with SETTINGS_LOCK:
+        return VIEWER_SETTINGS
 
 
 def set_viewer_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
     global VIEWER_SETTINGS
-    VIEWER_SETTINGS = settings
+    with SETTINGS_LOCK:
+        VIEWER_SETTINGS = settings
     return VIEWER_SETTINGS

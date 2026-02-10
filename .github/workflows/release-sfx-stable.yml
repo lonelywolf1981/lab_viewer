@@ -71,7 +71,18 @@ jobs:
           $archive = "repo_${version}.7z"
           $outExe  = "repo_${version}_stable.exe"
 
-          & $sevenZip a -t7z $archive ".\*" "-xr!.git" | Out-Host
+          & $sevenZip a -t7z $archive ".\*" `
+            "-xr!.git" `
+            "-xr!.venv" `
+            "-xr!__pycache__" `
+            "-xr!*.pyc" `
+            "-xr!documentations" `
+            "-xr!saved_orders" `
+            "-xr!saved_presets" `
+            "-xr!viewer_settings.json" `
+            "-xr!channel_order.json" `
+            "-xr!*.log" `
+            "-xr!.github" | Out-Host
 
           # ВАЖНО: генерируем config без "сырых" строк в YAML
           $cfg = @(

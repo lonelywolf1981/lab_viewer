@@ -131,7 +131,6 @@ function renderChannelList(arr, keepSelection=true, pruneSelection=true) {
       if(ev.dataTransfer.setDragImage) {
         // If multiple items are selected, create a custom drag image indicating this
         if(selected.size > 1) {
-          // Create a temporary element to show the number of selected items
           const dragPreview = document.createElement("div");
           dragPreview.style.position = "absolute";
           dragPreview.style.left = "-9999px";
@@ -142,21 +141,19 @@ function renderChannelList(arr, keepSelection=true, pruneSelection=true) {
           dragPreview.style.fontSize = "14px";
           dragPreview.style.fontFamily = "Arial, sans-serif";
           dragPreview.style.zIndex = "9999";
-          dragPreview.innerHTML = `${selected.size} элементов`;
+          dragPreview.textContent = selected.size + " элементов";
 
           document.body.appendChild(dragPreview);
           try {
             ev.dataTransfer.setDragImage(dragPreview, 10, 10);
-            // Clean up the temporary element after a short delay
-            setTimeout(() => {
-              if(dragPreview.parentNode) {
-                dragPreview.parentNode.removeChild(dragPreview);
-              }
-            }, 100);
           } catch(_) {
-            // Fallback to original behavior
             try { ev.dataTransfer.setDragImage(li, 20, 12); } catch(_) {}
           }
+          // Clean up on dragend (browser has captured the image by then)
+          handle.addEventListener("dragend", function _cleanup() {
+            handle.removeEventListener("dragend", _cleanup);
+            if(dragPreview.parentNode) dragPreview.parentNode.removeChild(dragPreview);
+          });
         } else {
           try { ev.dataTransfer.setDragImage(li, 20, 12); } catch(_) {}
         }
@@ -631,14 +628,15 @@ function loadTest() {
     _rangeStatsToken++;
 
     CHANNELS_FILE = j.channels || [];
+    _rebuildLabelMap();
     SAVED_ORDER = j.saved_order || [];
 
     SUMMARY = j.summary || null;
     if(SUMMARY) {
-      el("summary").innerHTML =
-        `Точек: <b>${SUMMARY.points}</b> | ` +
-        `Начало: <b>${SUMMARY.start}</b> | ` +
-        `Конец: <b>${SUMMARY.end}</b>`;
+      el("summary").textContent =
+        `Точек: ${SUMMARY.points} | ` +
+        `Начало: ${SUMMARY.start} | ` +
+        `Конец: ${SUMMARY.end}`;
       currentRange = [SUMMARY.start_ms, SUMMARY.end_ms];
       // Новый тест загружен: на следующем построении графика диапазон должен
       // сброситься к полному диапазону текущего теста.
@@ -685,9 +683,15 @@ function getStep() {
   return isFinite(v) && v > 0 ? v : 1;
 }
 
+let _labelMap = new Map();
+
+function _rebuildLabelMap() {
+  _labelMap = new Map();
+  (CHANNELS_FILE || []).forEach(c => _labelMap.set(c.code, c.label));
+}
+
 function labelFor(code) {
-  const c = CHANNELS_FILE.find(x => x.code === code);
-  return c ? c.label : code;
+  return _labelMap.get(code) || code;
 }
 
 

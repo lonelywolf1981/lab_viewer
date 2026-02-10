@@ -52,17 +52,6 @@ function parseRelayoutRange(ev) {
 }
 
 
-// Plotly рисует ось времени в UTC. Чтобы на графике было локальное время (как в данных/сводке),
-// сдвигаем X на локальный offset. При чтении диапазона с графика делаем обратное преобразование.
-//function msToPlotX(ms) {
-//  const offMin = new Date(ms).getTimezoneOffset(); // minutes (UTC - local)
-//  return ms - offMin * 60000;
-//}
-//function plotXToMs(plotMs) {
-//  const offMin = new Date(plotMs).getTimezoneOffset();
-//  return plotMs + offMin * 60000;
-//}
-
 function msToPlotX(ms) {
   return ms;
 }
@@ -651,13 +640,12 @@ function updateExportInfo() {
 
   const extra = !!(el('tplExtra') && el('tplExtra').checked);
 
-  // Сделаем компактно и читабельно
-  box.innerHTML =
-    `Каналы: <b>${codes.length}</b> &nbsp;•&nbsp; ` +
-    `Точек в диапазоне: <b>${pts}</b> &nbsp;•&nbsp; ` +
-    `После шага: <b>${after}</b> &nbsp;•&nbsp; ` +
-    `Шаг: <b>${Math.max(1, step)}</b> <span class="mini">(${auto ? 'авто' : 'вручную'})</span> &nbsp;•&nbsp; ` +
-    `Z: <b>${extra ? 'да' : 'нет'}</b>`;
+  box.textContent =
+    `Каналы: ${codes.length}  •  ` +
+    `Точек в диапазоне: ${pts}  •  ` +
+    `После шага: ${after}  •  ` +
+    `Шаг: ${Math.max(1, step)} (${auto ? 'авто' : 'вручную'})  •  ` +
+    `Z: ${extra ? 'да' : 'нет'}`;
 }
 
 function onRangeChanged() {

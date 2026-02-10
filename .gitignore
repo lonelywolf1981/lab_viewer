@@ -1,4 +1,11 @@
 *.xlsx
+!template.xlsx
 __pycache__/
+*.pyc
 *.log
 server.zip
+.venv/
+requirements._filtered.txt
+documentations/
+ANALYSIS_REPORT.md
+.claude/

@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import os
 import datetime as dt
+import threading
 from bisect import bisect_left, bisect_right
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from lemure_reader import load_test, ChannelInfo
+
+STATE_LOCK = threading.Lock()
 
 STATE: Dict[str, Any] = {
     "loaded": False,
@@ -15,10 +18,19 @@ STATE: Dict[str, Any] = {
     "t_list": [],
 }
 
+DATA_VERSION: int = 0
+
+
+def get_data_version() -> int:
+    return DATA_VERSION
+
 
 def build_state(folder: str) -> Dict[str, Any]:
+    global DATA_VERSION
     data = load_test(folder)
-    t_list = [r["t_ms"] for r in data["rows"]]
+    t_list = data["t_ms"]
+    with STATE_LOCK:
+        DATA_VERSION += 1
     return {"loaded": True, "folder": folder, "data": data, "t_list": t_list}
 
 
@@ -27,13 +39,13 @@ def channel_to_dict(ch: ChannelInfo) -> Dict[str, str]:
 
 
 def summary(data: Dict[str, Any]) -> Dict[str, Any]:
-    rows = data["rows"]
-    if not rows:
+    t_ms = data["t_ms"]
+    if not t_ms:
         return {"points": 0}
-    t0 = rows[0]["t_ms"]
-    t1 = rows[-1]["t_ms"]
+    t0 = t_ms[0]
+    t1 = t_ms[-1]
     return {
-        "points": len(rows),
+        "points": len(t_ms),
         "start_ms": t0,
         "end_ms": t1,
         "start": dt.datetime.fromtimestamp(t0 / 1000).strftime("%Y-%m-%d %H:%M:%S"),

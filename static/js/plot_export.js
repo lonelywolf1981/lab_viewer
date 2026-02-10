@@ -170,8 +170,6 @@ function drawPlot() {
         } else if(!currentRange) {
           currentRange = [SUMMARY.start_ms, SUMMARY.end_ms];
         }
-        // Сброс диапазона применён (если был нужен) — дальше сохраняем диапазон при смене каналов.
-        _forceResetRangeOnNextPlot = false;
         updateRangeText();
       });
 
@@ -187,6 +185,7 @@ function drawPlot() {
       log("drawPlot error: " + e);
     })
     .finally(()=>{
+      _forceResetRangeOnNextPlot = false;
       if(btn) btn.disabled = false;
       endBusy();
     });
@@ -229,7 +228,7 @@ function exportData(fmt) {
   const bx = el("btnXlsx");
   if(bc) bc.disabled = true;
   if(bx) bx.disabled = true;
-  if(st) st.innerHTML = `<span class="spinner"></span>Экспортирую ${fmt.toUpperCase()}… <span style="opacity:.85">(каналы: ${codes.length}, диапазон: ${new Date(start_ms).toLocaleString()} → ${new Date(end_ms).toLocaleString()})</span>`;
+  if(st) st.textContent = `Экспортирую ${fmt.toUpperCase()}… (каналы: ${codes.length}, диапазон: ${new Date(start_ms).toLocaleString()} → ${new Date(end_ms).toLocaleString()})`;
 
   const qs = new URLSearchParams();
   qs.set("format", fmt);
@@ -318,7 +317,7 @@ function exportTemplate() {
   const includeExtra = (el('tplExtra') && el('tplExtra').checked) ? 1 : 0;
   const refrigerant = getRefrigerant();
   if(btn) { btn.disabled = true; btn.textContent = "Готовлю шаблон…"; }
-  if(st)  { st.innerHTML = `<span class="spinner"></span>Формирую Excel… <span style="opacity:.85">(каналы: ${codes.length}, диапазон: ${new Date(start_ms).toLocaleString()} → ${new Date(end_ms).toLocaleString()}, Z: ${includeExtra ? 'да' : 'нет'}, хладагент: ${refrigerant})</span>`; }
+  if(st)  { st.textContent = `Формирую Excel… (каналы: ${codes.length}, диапазон: ${new Date(start_ms).toLocaleString()} → ${new Date(end_ms).toLocaleString()}, Z: ${includeExtra ? 'да' : 'нет'}, хладагент: ${refrigerant})`; }
 
   const qs = new URLSearchParams();
   qs.set("start_ms", String(start_ms));

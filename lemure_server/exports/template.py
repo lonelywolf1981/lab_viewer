@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 import time as time_mod
 import datetime as dt
 from bisect import bisect_left
@@ -16,8 +17,8 @@ from ..state import STATE, nearest_index
 from ..settings import (
     get_viewer_settings,
     DEFAULT_VIEWER_SETTINGS,
-    _argb_from_hex_and_intensity,
-    _normalize_hex_color,
+    argb_from_hex_and_intensity,
+    normalize_hex_color,
 )
 
 
@@ -28,20 +29,20 @@ def export_template_impl(args) -> Any:
         return jsonify({"ok": False, "error": "Данные не загружены"}), 400
 
     data = STATE["data"]
-    rows: List[Dict[str, Any]] = data["rows"]
     t_list: List[int] = STATE["t_list"]
+    data_columns: Dict[str, list] = data.get("columns") or {}
     cols: List[str] = data.get("cols") or []
     channels: Dict[str, ChannelInfo] = data.get("channels") or {}
 
-    if not rows:
+    if not t_list:
         return jsonify({"ok": False, "error": "Нет строк данных"}), 400
 
     try:
-        start_ms = int(float(args.get("start_ms", rows[0]["t_ms"])))
-        end_ms = int(float(args.get("end_ms", rows[-1]["t_ms"])))
+        start_ms = int(float(args.get("start_ms", t_list[0])))
+        end_ms = int(float(args.get("end_ms", t_list[-1])))
     except Exception:
-        start_ms = rows[0]["t_ms"]
-        end_ms = rows[-1]["t_ms"]
+        start_ms = t_list[0]
+        end_ms = t_list[-1]
 
     if start_ms > end_ms:
         start_ms, end_ms = end_ms, start_ms
@@ -120,8 +121,7 @@ def export_template_impl(args) -> Any:
         extra_codes = []
 
     def _nat_key(s: str):
-        import re as _re
-        parts = _re.split(r'(\d+)', s or '')
+        parts = re.split(r'(\d+)', s or '')
         out = []
         for part in parts:
             if part.isdigit():
@@ -258,9 +258,16 @@ def export_template_impl(args) -> Any:
         for c in range(1, max_col + 1):
             src = ws.cell(row=pattern_row, column=c)
             try:
-                style_cache[c] = (copy(src._style), src.number_format)
+                style_cache[c] = {
+                    'font': copy(src.font),
+                    'border': copy(src.border),
+                    'fill': copy(src.fill),
+                    'number_format': src.number_format,
+                    'protection': copy(src.protection),
+                    'alignment': copy(src.alignment),
+                }
             except Exception:
-                style_cache[c] = (None, src.number_format)
+                style_cache[c] = {'number_format': src.number_format}
 
         pat_height = None
         try:
@@ -271,11 +278,19 @@ def export_template_impl(args) -> Any:
         for r in range(template_max_row + 1, needed_last_row + 1):
             for c in range(1, max_col + 1):
                 cell = ws.cell(row=r, column=c)
-                st, nf = style_cache.get(c, (None, None))
-                if st is not None:
-                    cell._style = st
-                if nf is not None:
-                    cell.number_format = nf
+                sc = style_cache.get(c, {})
+                if 'font' in sc:
+                    cell.font = sc['font']
+                if 'border' in sc:
+                    cell.border = sc['border']
+                if 'fill' in sc:
+                    cell.fill = sc['fill']
+                if 'protection' in sc:
+                    cell.protection = sc['protection']
+                if 'alignment' in sc:
+                    cell.alignment = sc['alignment']
+                if sc.get('number_format') is not None:
+                    cell.number_format = sc['number_format']
             if pat_height is not None:
                 try:
                     ws.row_dimensions[r].height = pat_height
@@ -290,7 +305,7 @@ def export_template_impl(args) -> Any:
         ws.cell(row=r, column=2).value = _dt.timedelta(seconds=j * 20)
 
         if idx >= 0:
-            tms = rows[idx]["t_ms"]
+            tms = t_list[idx]
             dt_obj = dt.datetime.fromtimestamp(tms / 1000)
             ws.cell(row=r, column=3).value = dt_obj.time()
         else:
@@ -300,9 +315,9 @@ def export_template_impl(args) -> Any:
             ws.cell(row=r, column=colnum).value = None
 
         if idx >= 0:
-            row = rows[idx]
             for code, colnum in writers:
-                v = row.get(code)
+                col = data_columns.get(code)
+                v = col[idx] if col is not None else None
                 if v is not None:
                     try:
                         ws.cell(row=r, column=colnum).value = float(v)
@@ -310,7 +325,8 @@ def export_template_impl(args) -> Any:
                         pass
 
             for code, colnum in extra_writers:
-                v = row.get(code)
+                col = data_columns.get(code)
+                v = col[idx] if col is not None else None
                 if v is None:
                     ws.cell(row=r, column=colnum).value = None
                 else:
@@ -353,16 +369,10 @@ def export_template_impl(args) -> Any:
     clear_from = start_row + len(idxs)
     clear_to = min(ws.max_row, clear_from + 200)
     clear_cols = [2, 3] + base_raw_cols + [c for _, c in extra_writers]
-    cells_dict = getattr(ws, '_cells', None)
 
     for r in range(clear_from, clear_to + 1):
         for c in clear_cols:
-            if cells_dict is not None:
-                cell = cells_dict.get((r, c))
-                if cell is not None:
-                    cell.value = None
-            else:
-                ws.cell(row=r, column=c).value = None
+            ws.cell(row=r, column=c).value = None
 
     t_write = time_mod.perf_counter()
 
@@ -390,7 +400,7 @@ def export_template_impl(args) -> Any:
             except Exception:
                 intensity = 100
 
-            fill_argb = _argb_from_hex_and_intensity(color_hex, intensity)
+            fill_argb = argb_from_hex_and_intensity(color_hex, intensity)
             row_fill = PatternFill(fill_type='solid', start_color=fill_argb, end_color=fill_argb)
 
             rng_row = f"B{first_r}:P{last_r}"
@@ -413,7 +423,7 @@ def export_template_impl(args) -> Any:
             dm = viewer_settings.get('discharge_mark') if isinstance(viewer_settings.get('discharge_mark'), dict) else {}
             td_thr_s = _fmt_thr(dm.get('threshold', None))
             if td_thr_s is not None:
-                hx = _normalize_hex_color(str(dm.get('color') or ''), default='#FFC000')
+                hx = normalize_hex_color(str(dm.get('color') or ''), default='#FFC000')
                 argb = 'FF' + hx[1:].upper()
                 f_td = PatternFill(fill_type='solid', start_color=argb, end_color=argb)
                 rng_td = f"H{first_r}:H{last_r}"
@@ -427,7 +437,7 @@ def export_template_impl(args) -> Any:
             sm = viewer_settings.get('suction_mark') if isinstance(viewer_settings.get('suction_mark'), dict) else {}
             ts_thr_s = _fmt_thr(sm.get('threshold', None))
             if ts_thr_s is not None:
-                hx = _normalize_hex_color(str(sm.get('color') or ''), default='#00B0F0')
+                hx = normalize_hex_color(str(sm.get('color') or ''), default='#00B0F0')
                 argb = 'FF' + hx[1:].upper()
                 f_ts = PatternFill(fill_type='solid', start_color=argb, end_color=argb)
                 rng_ts = f"I{first_r}:I{last_r}"
@@ -441,7 +451,7 @@ def export_template_impl(args) -> Any:
             scales = viewer_settings.get('scales') if isinstance(viewer_settings.get('scales'), dict) else {}
 
             def _hex_to_argb(hx: str, default: str) -> str:
-                hx = _normalize_hex_color(str(hx or ''), default=default)
+                hx = normalize_hex_color(str(hx or ''), default=default)
                 return 'FF' + hx[1:].upper()
 
             def _fmt_num(x) -> str:

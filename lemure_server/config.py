@@ -6,7 +6,10 @@ import os
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 APP_HOST = "127.0.0.1"
-APP_PORT = 8787
+try:
+    APP_PORT = int(os.environ.get('LEMURE_PORT', 8787))
+except (TypeError, ValueError):
+    APP_PORT = 8787
 
 # Files in the project root
 ORDER_FILE = os.path.join(PROJECT_ROOT, "channel_order.json")

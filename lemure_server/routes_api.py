@@ -9,7 +9,7 @@ from flask import Blueprint, jsonify, request, send_file
 
 from .config import APP_PORT, PROJECT_ROOT, send_file_compat
 from .settings import get_viewer_settings, normalize_viewer_settings, save_viewer_settings, set_viewer_settings
-from .state import STATE, build_state, channel_to_dict, summary, slice_by_time, validate_folder_path
+from .state import STATE, STATE_LOCK, build_state, channel_to_dict, summary, slice_by_time, validate_folder_path, get_data_version
 from .series_cache import cached_series_slice, clear_cache
 from .persistence import (
     load_saved_order,
@@ -32,6 +32,20 @@ from .utils import log_exception_to_file
 api_bp = Blueprint('api', __name__)
 
 
+def _deduplicate_list(items: list, skip_empty: bool = False) -> List[str]:
+    """Deduplicate a list of items preserving order."""
+    seen = set()
+    out = []
+    for x in items:
+        s = str(x)
+        if skip_empty and not s:
+            continue
+        if s not in seen:
+            seen.add(s)
+            out.append(s)
+    return out
+
+
 @api_bp.route('/api/settings', methods=['GET', 'POST'])
 def api_settings():
     if request.method == 'GET':
@@ -47,18 +61,32 @@ def api_settings():
 
 @api_bp.route('/api/pick_folder', methods=['POST'])
 def pick_folder():
-    try:
-        import tkinter as tk
-        from tkinter import filedialog
+    import threading as _th
 
-        root = tk.Tk()
-        root.withdraw()
-        root.wm_attributes('-topmost', 1)
-        folder = filedialog.askdirectory(title='Выберите папку с тестом (где Prova*.dbf)')
-        root.destroy()
-        return jsonify({'ok': True, 'folder': folder or ''})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e), 'folder': ''})
+    result = {'folder': '', 'error': None}
+
+    def _run_dialog():
+        try:
+            import tkinter as tk
+            from tkinter import filedialog
+
+            root = tk.Tk()
+            root.withdraw()
+            root.wm_attributes('-topmost', 1)
+            result['folder'] = filedialog.askdirectory(
+                title='Выберите папку с тестом (где Prova*.dbf)'
+            ) or ''
+            root.destroy()
+        except Exception as e:
+            result['error'] = str(e)
+
+    t = _th.Thread(target=_run_dialog, daemon=True)
+    t.start()
+    t.join(timeout=120)
+
+    if result['error']:
+        return jsonify({'ok': False, 'error': result['error'], 'folder': ''})
+    return jsonify({'ok': True, 'folder': result['folder']})
 
 
 @api_bp.route('/api/load', methods=['POST'])
@@ -66,16 +94,17 @@ def api_load():
     body = request.get_json(force=True, silent=True) or {}
     folder = (body.get('folder') or '').strip()
 
-    if not validate_folder_path(folder):
-        return jsonify({'ok': False, 'error': 'Недопустимый путь'})
     if not folder:
         return jsonify({'ok': False, 'error': 'Путь к папке пустой'})
+    if not validate_folder_path(folder):
+        return jsonify({'ok': False, 'error': 'Недопустимый путь'})
     if not os.path.isdir(folder):
         return jsonify({'ok': False, 'error': 'Папка не существует: ' + folder})
 
     try:
         st = build_state(folder)
-        STATE.update(st)
+        with STATE_LOCK:
+            STATE.update(st)
         clear_cache()
 
         data = STATE['data']
@@ -108,8 +137,8 @@ def api_series():
         return jsonify({'ok': False, 'error': 'Данные не загружены'})
 
     data = STATE['data']
-    rows: List[Dict[str, Any]] = data['rows']
     t_list: List[int] = STATE['t_list']
+    columns: Dict[str, list] = data['columns']
 
     if request.method == 'POST':
         body = request.get_json(force=True, silent=True) or {}
@@ -117,22 +146,22 @@ def api_series():
         if isinstance(channels_in, list):
             ch = [str(c).strip() for c in channels_in if str(c).strip()]
         else:
-            channels = str(channels_in or '')
-            ch = [c for c in channels.split(',') if c.strip()]
+            channels_str = str(channels_in or '')
+            ch = [c for c in channels_str.split(',') if c.strip()]
         args = body
     else:
-        channels = request.args.get('channels', '')
-        ch = [c for c in channels.split(',') if c.strip()]
+        channels_str = request.args.get('channels', '')
+        ch = [c for c in channels_str.split(',') if c.strip()]
         args = request.args
     if not ch:
         return jsonify({'ok': False, 'error': 'Не выбраны каналы'})
 
     try:
-        start_ms = int(float(args.get('start_ms', rows[0]['t_ms'])))
-        end_ms = int(float(args.get('end_ms', rows[-1]['t_ms'])))
+        start_ms = int(float(args.get('start_ms', t_list[0])))
+        end_ms = int(float(args.get('end_ms', t_list[-1])))
     except Exception:
-        start_ms = rows[0]['t_ms']
-        end_ms = rows[-1]['t_ms']
+        start_ms = t_list[0]
+        end_ms = t_list[-1]
 
     if start_ms > end_ms:
         start_ms, end_ms = end_ms, start_ms
@@ -162,22 +191,17 @@ def api_series():
 
     try:
         if use_cache:
-            t_ms, series = cached_series_slice(id(rows), channels_key, start_ms, end_ms, step_i)
+            t_ms, series = cached_series_slice(get_data_version(), channels_key, start_ms, end_ms, step_i)
         else:
-            sliced = rows[i0:i1:step_i]
-            t_ms = [r['t_ms'] for r in sliced]
-
-            def _to_float(v):
-                if v is None:
-                    return None
-                if isinstance(v, (int, float)):
-                    return float(v)
-                try:
-                    return float(str(v).replace(',', '.'))
-                except Exception:
-                    return None
-
-            series = {code: [_to_float(r.get(code)) for r in sliced] for code in ch}
+            t_ms = t_list[i0:i1:step_i]
+            n = len(t_ms)
+            series = {}
+            for code in ch:
+                col = columns.get(code)
+                if col is not None:
+                    series[code] = col[i0:i1:step_i]
+                else:
+                    series[code] = [None] * n
 
         return jsonify({'ok': True, 't_ms': t_ms, 'series': series, 'step': step_i, 'points': len(t_ms)})
 
@@ -216,14 +240,7 @@ def api_save_order():
     if not isinstance(order, list):
         return jsonify({'ok': False, 'error': 'order must be a list'}), 400
 
-    seen = set()
-    normalized = []
-    for x in order:
-        s = str(x)
-        if s not in seen:
-            seen.add(s)
-            normalized.append(s)
-
+    normalized = _deduplicate_list(order)
     save_order(normalized)
     return jsonify({'ok': True, 'saved': len(normalized)})
 
@@ -251,13 +268,7 @@ def api_orders_save():
     if not key:
         return jsonify({'ok': False, 'error': 'Имя некорректное'}), 400
 
-    seen = set()
-    normalized = []
-    for x in order:
-        s = str(x)
-        if s and s not in seen:
-            seen.add(s)
-            normalized.append(s)
+    normalized = _deduplicate_list(order, skip_empty=True)
 
     try:
         save_named_order(name, normalized)
@@ -282,13 +293,7 @@ def api_orders_load():
         order = data.get('order')
         if not isinstance(order, list):
             order = []
-        out = []
-        seen = set()
-        for x in order:
-            s = str(x)
-            if s and s not in seen:
-                seen.add(s)
-                out.append(s)
+        out = _deduplicate_list(order, skip_empty=True)
         return jsonify({'ok': True, 'key': key, 'name': str(data.get('name') or key), 'order': out})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
@@ -318,24 +323,11 @@ def api_presets_save():
     channels = preset.get('channels')
     if not isinstance(channels, list):
         channels = []
-    channels_n = []
-    seen = set()
-    for x in channels:
-        s = str(x)
-        if s and s not in seen:
-            seen.add(s)
-            channels_n.append(s)
+    channels_n = _deduplicate_list(channels, skip_empty=True)
 
     order = preset.get('order')
     if isinstance(order, list):
-        o2 = []
-        seen2 = set()
-        for x in order:
-            s = str(x)
-            if s and s not in seen2:
-                seen2.add(s)
-                o2.append(s)
-        order = o2
+        order = _deduplicate_list(order, skip_empty=True)
     else:
         order = []
 
@@ -401,21 +393,21 @@ def api_export():
         return jsonify({'ok': False, 'error': 'Данные не загружены'}), 400
 
     data = STATE['data']
-    rows: List[Dict[str, Any]] = data['rows']
     t_list: List[int] = STATE['t_list']
+    columns: Dict[str, list] = data['columns']
 
     fmt = (request.args.get('format', 'csv') or 'csv').lower()
-    channels = request.args.get('channels', '')
-    ch = [c for c in channels.split(',') if c.strip()]
+    channels_str = request.args.get('channels', '')
+    ch = [c for c in channels_str.split(',') if c.strip()]
     if not ch:
         return jsonify({'ok': False, 'error': 'Не выбраны каналы'}), 400
 
     try:
-        start_ms = int(float(request.args.get('start_ms', rows[0]['t_ms'])))
-        end_ms = int(float(request.args.get('end_ms', rows[-1]['t_ms'])))
+        start_ms = int(float(request.args.get('start_ms', t_list[0])))
+        end_ms = int(float(request.args.get('end_ms', t_list[-1])))
     except Exception:
-        start_ms = rows[0]['t_ms']
-        end_ms = rows[-1]['t_ms']
+        start_ms = t_list[0]
+        end_ms = t_list[-1]
 
     try:
         step_i = max(1, int(request.args.get('step', '1')))
@@ -423,15 +415,16 @@ def api_export():
         step_i = 1
 
     i0, i1 = slice_by_time(t_list, start_ms, end_ms)
-    sliced = rows[i0:i1:step_i]
+    sliced_t = t_list[i0:i1:step_i]
+    sliced_cols = {code: columns[code][i0:i1:step_i] for code in ch if code in columns}
 
     if fmt == 'xlsx':
-        payload = export_xlsx(sliced, ch)
+        payload = export_xlsx(sliced_t, sliced_cols, ch)
         return send_file_compat(send_file, io.BytesIO(payload),
                                 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                                 'export.xlsx')
 
-    payload = export_csv(sliced, ch)
+    payload = export_csv(sliced_t, sliced_cols, ch)
     return send_file_compat(send_file, io.BytesIO(payload), 'text/csv', 'export.csv')
 
 
